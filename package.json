@@ -1,0 +1,11 @@
+{
+  "name": "chainmind",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "build": "pnpm --parallel -r build",
+    "compile": "pnpm --filter contracts compile"
+  },
+  "packageManager": "pnpm@9.0.0"
+}
