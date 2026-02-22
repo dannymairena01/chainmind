@@ -10,7 +10,7 @@ interface ProvidersProps {
 }
 
 function PrivyWrapper({ children }: { children: React.ReactNode }) {
-    const privyAppId = process.env["NEXT_PUBLIC_PRIVY_APP_ID"];
+    const privyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
 
     // Only mount PrivyProvider when a real app ID is configured.
     // In stub / scaffold mode, render children directly so the page doesn't crash.
