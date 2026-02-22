@@ -1,31 +1,10 @@
 "use client";
 
 import Link from "next/link";
-
-// In scaffold mode (no NEXT_PUBLIC_PRIVY_APP_ID), PrivyProvider is not mounted,
-// so we use a simple stub hook that returns no user state.
-function usePrivyStub() {
-    const hasPrivy = Boolean(
-        typeof process !== "undefined" &&
-        process.env.NEXT_PUBLIC_PRIVY_APP_ID &&
-        process.env.NEXT_PUBLIC_PRIVY_APP_ID !== "placeholder-app-id"
-    );
-
-    if (!hasPrivy) {
-        return { login: () => { }, authenticated: false, user: null };
-    }
-
-    // Only use real Privy when available
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { usePrivy } = require("@privy-io/react-auth") as {
-        usePrivy: () => { login: () => void; authenticated: boolean; user: { wallet?: { address?: string } } | null };
-    };
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    return usePrivy();
-}
+import { usePrivy } from "@privy-io/react-auth";
 
 export default function LandingPage() {
-    const { login, authenticated, user } = usePrivyStub();
+    const { login, authenticated, user } = usePrivy();
 
     return (
         <main className="flex min-h-screen flex-col items-center justify-center px-6 text-center">

@@ -4,6 +4,7 @@ import { WagmiProvider } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { wagmiConfig } from "./wagmi";
 import { useState } from "react";
+import { PrivyProvider } from "@privy-io/react-auth";
 
 interface ProvidersProps {
     children: React.ReactNode;
@@ -17,15 +18,6 @@ function PrivyWrapper({ children }: { children: React.ReactNode }) {
     if (!privyAppId || privyAppId === "placeholder-app-id") {
         return <>{children}</>;
     }
-
-    // Dynamic import to avoid top-level Privy initialization without valid keys
-    const { PrivyProvider } = require("@privy-io/react-auth") as {
-        PrivyProvider: React.ComponentType<{
-            appId: string;
-            config: object;
-            children: React.ReactNode;
-        }>;
-    };
 
     return (
         <PrivyProvider
