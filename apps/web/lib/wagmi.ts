@@ -17,4 +17,5 @@ export const wagmiConfig: Config = createConfig({
             "https://sepolia.base.org"
         ),
     },
+    ssr: true,
 });

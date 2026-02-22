@@ -7,8 +7,8 @@ import Link from "next/link";
 function usePrivyStub() {
     const hasPrivy = Boolean(
         typeof process !== "undefined" &&
-        process.env["NEXT_PUBLIC_PRIVY_APP_ID"] &&
-        process.env["NEXT_PUBLIC_PRIVY_APP_ID"] !== "placeholder-app-id"
+        process.env.NEXT_PUBLIC_PRIVY_APP_ID &&
+        process.env.NEXT_PUBLIC_PRIVY_APP_ID !== "placeholder-app-id"
     );
 
     if (!hasPrivy) {
