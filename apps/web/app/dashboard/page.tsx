@@ -1,6 +1,7 @@
 "use client";
 
 import { usePrivy } from "@privy-io/react-auth";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 
 type AgentStatus = "active" | "idle" | "error";
@@ -20,28 +21,34 @@ const STATUS_STYLES: Record<AgentStatus, string> = {
     error: "bg-red-500/20 text-red-400 border-red-500/30",
 };
 
-// Placeholder agents — replaced by real API calls in production
-const STUB_AGENTS: Agent[] = [
-    {
-        id: "agent_1",
-        name: "Alpha Monitor",
-        taskType: "MONITOR",
-        status: "active",
-        walletAddress: "0xAbCd...1234",
-        lastAction: "Watched wallet for transfers",
-    },
-    {
-        id: "agent_2",
-        name: "Beta Swapper",
-        taskType: "SWAP",
-        status: "idle",
-        walletAddress: "0xEfGh...5678",
-        lastAction: "Waiting for trigger price",
-    },
-];
+const AGENT_API = process.env["NEXT_PUBLIC_AGENT_API_URL"] ?? "http://localhost:3001";
+
+async function fetchUserAgents(
+    ownerId: string,
+    getToken: () => Promise<string | null>
+): Promise<Agent[]> {
+    const token = await getToken();
+
+    const res = await fetch(`${AGENT_API}/agents`, {
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+    });
+
+    if (!res.ok) throw new Error("Failed to fetch agents");
+    const data = await res.json() as { agents: Agent[] };
+    return data.agents;
+}
 
 export default function DashboardPage() {
-    const { user, authenticated, login } = usePrivy();
+    const { user, authenticated, login, getAccessToken } = usePrivy();
+
+    const { data: agents = [], isLoading } = useQuery({
+        queryKey: ["agents", user?.wallet?.address],
+        queryFn: () => fetchUserAgents(user?.wallet?.address as string, getAccessToken),
+        enabled: Boolean(user?.wallet?.address),
+        refetchInterval: 10_000,
+    });
 
     if (!authenticated) {
         return (
@@ -80,39 +87,55 @@ export default function DashboardPage() {
             </div>
 
             {/* Agent cards */}
-            <div className="grid gap-4">
-                {STUB_AGENTS.map((agent) => (
+            {isLoading ? (
+                <div className="text-gray-500 text-center py-12 animate-pulse">
+                    Loading your agents...
+                </div>
+            ) : agents.length === 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-12 text-center">
+                    <p className="text-gray-400 mb-4">You haven't deployed any agents yet.</p>
                     <Link
-                        key={agent.id}
-                        href={`/agents/${agent.id}`}
-                        className="group rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur transition hover:border-indigo-500/40 hover:bg-white/8"
+                        href="/agents/new"
+                        className="text-indigo-400 hover:text-indigo-300 transition"
                     >
-                        <div className="flex items-start justify-between">
-                            <div>
-                                <h2 className="text-lg font-semibold text-white group-hover:text-indigo-300 transition">
-                                    {agent.name}
-                                </h2>
-                                <p className="text-sm text-gray-500 font-mono mt-0.5">
-                                    {agent.walletAddress}
-                                </p>
-                            </div>
-                            <span
-                                className={`rounded-full border px-3 py-0.5 text-xs font-medium ${STATUS_STYLES[agent.status]}`}
-                            >
-                                {agent.status}
-                            </span>
-                        </div>
-                        <div className="mt-4 flex items-center gap-6 text-sm text-gray-400">
-                            <span className="flex items-center gap-1.5">
-                                <span className="text-gray-600">Task:</span> {agent.taskType}
-                            </span>
-                            <span className="flex items-center gap-1.5">
-                                <span className="text-gray-600">Last:</span> {agent.lastAction}
-                            </span>
-                        </div>
+                        Create your first AI Agent →
                     </Link>
-                ))}
-            </div>
+                </div>
+            ) : (
+                <div className="grid gap-4">
+                    {agents.map((agent) => (
+                        <Link
+                            key={agent.id}
+                            href={`/agents/${agent.id}`}
+                            className="group rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur transition hover:border-indigo-500/40 hover:bg-white/8"
+                        >
+                            <div className="flex items-start justify-between">
+                                <div>
+                                    <h2 className="text-lg font-semibold text-white group-hover:text-indigo-300 transition">
+                                        {agent.name}
+                                    </h2>
+                                    <p className="text-sm text-gray-500 font-mono mt-0.5">
+                                        {agent.walletAddress || "Provisioning wallet..."}
+                                    </p>
+                                </div>
+                                <span
+                                    className={`rounded-full border px-3 py-0.5 text-xs font-medium ${STATUS_STYLES[agent.status] ?? STATUS_STYLES.idle}`}
+                                >
+                                    {agent.status}
+                                </span>
+                            </div>
+                            <div className="mt-4 flex items-center gap-6 text-sm text-gray-400">
+                                <span className="flex items-center gap-1.5">
+                                    <span className="text-gray-600">Task:</span> {agent.taskType}
+                                </span>
+                                <span className="flex items-center gap-1.5">
+                                    <span className="text-gray-600">Last:</span> {agent.lastAction || "Running first job"}
+                                </span>
+                            </div>
+                        </Link>
+                    ))}
+                </div>
+            )}
         </main>
     );
 }

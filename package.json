@@ -7,5 +7,10 @@
     "build": "pnpm --parallel -r build",
     "compile": "pnpm --filter contracts compile"
   },
-  "packageManager": "pnpm@9.0.0"
+  "packageManager": "pnpm@9.0.0",
+  "devDependencies": {
+    "@types/express-serve-static-core": "^5.1.1",
+    "@types/qs": "^6.14.0",
+    "@types/serve-static": "^2.2.0"
+  }
 }

@@ -21,8 +21,17 @@ interface AgentDetail {
 
 const AGENT_API = process.env["NEXT_PUBLIC_AGENT_API_URL"] ?? "http://localhost:3001";
 
-async function fetchAgent(id: string): Promise<AgentDetail> {
-    const res = await fetch(`${AGENT_API}/agents/${id}`);
+async function fetchAgent(
+    id: string,
+    getToken: () => Promise<string | null>
+): Promise<AgentDetail> {
+    const token = await getToken();
+
+    const res = await fetch(`${AGENT_API}/agents/${id}`, {
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+    });
     if (!res.ok) throw new Error("Agent not found");
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return res.json() as Promise<AgentDetail>;
@@ -32,9 +41,12 @@ export default function AgentDetailPage() {
     const params = useParams<{ id: string }>();
     const agentId = params.id;
 
+    // Import usePrivy to get the token, since this page accesses a locked down route
+    const { getAccessToken } = require("@privy-io/react-auth").usePrivy();
+
     const { data: agent, isLoading, error } = useQuery({
         queryKey: ["agent", agentId],
-        queryFn: () => fetchAgent(agentId),
+        queryFn: () => fetchAgent(agentId, getAccessToken),
         refetchInterval: 10_000, // poll every 10 s
     });
 

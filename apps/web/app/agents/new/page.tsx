@@ -19,7 +19,7 @@ const TASK_OPTIONS: { value: TaskType; label: string; icon: string }[] = [
 ];
 
 export default function NewAgentPage() {
-    const { user, authenticated, login } = usePrivy();
+    const { user, authenticated, login, getAccessToken } = usePrivy();
     const router = useRouter();
     const [form, setForm] = useState<NewAgentForm>({
         name: "",
@@ -50,13 +50,17 @@ export default function NewAgentPage() {
         setError(null);
 
         try {
+            const token = await getAccessToken();
+
             const res = await fetch(
                 `${process.env["NEXT_PUBLIC_AGENT_API_URL"] ?? "http://localhost:3001"}/agents`,
                 {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                    },
                     body: JSON.stringify({
-                        ownerId: user.wallet.address,
                         name: form.name,
                         taskType: form.taskType,
                     }),
@@ -109,8 +113,8 @@ export default function NewAgentPage() {
                                 type="button"
                                 onClick={() => setForm({ ...form, taskType: option.value })}
                                 className={`rounded-xl border p-4 text-center transition ${form.taskType === option.value
-                                        ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
-                                        : "border-white/10 bg-white/5 text-gray-400 hover:border-white/20"
+                                    ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
+                                    : "border-white/10 bg-white/5 text-gray-400 hover:border-white/20"
                                     }`}
                             >
                                 <div className="text-2xl mb-1">{option.icon}</div>
