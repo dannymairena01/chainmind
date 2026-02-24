@@ -1,6 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import { usePrivy } from "@privy-io/react-auth";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 
@@ -42,7 +43,7 @@ export default function AgentDetailPage() {
     const agentId = params.id;
 
     // Import usePrivy to get the token, since this page accesses a locked down route
-    const { getAccessToken } = require("@privy-io/react-auth").usePrivy();
+    const { getAccessToken } = usePrivy();
 
     const { data: agent, isLoading, error } = useQuery({
         queryKey: ["agent", agentId],
