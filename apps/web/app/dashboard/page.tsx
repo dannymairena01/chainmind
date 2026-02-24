@@ -1,7 +1,7 @@
 "use client";
 
 import { usePrivy } from "@privy-io/react-auth";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 
 type AgentStatus = "active" | "idle" | "error";
@@ -42,6 +42,7 @@ async function fetchUserAgents(
 
 export default function DashboardPage() {
     const { user, authenticated, login, getAccessToken } = usePrivy();
+    const queryClient = useQueryClient();
 
     const { data: agents = [], isLoading } = useQuery({
         queryKey: ["agents", user?.wallet?.address],
@@ -63,6 +64,25 @@ export default function DashboardPage() {
             </main>
         );
     }
+
+    const deleteAgentMutation = useMutation({
+        mutationFn: async (agentId: string) => {
+            const token = await getAccessToken();
+            const res = await fetch(`${AGENT_API}/agents/${agentId}`, {
+                method: "DELETE",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+            if (!res.ok) {
+                const errText = await res.text();
+                throw new Error(errText || "Failed to delete agent");
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["agents", user?.wallet?.address] });
+        },
+    });
 
     return (
         <main className="mx-auto max-w-5xl px-6 py-12">
@@ -118,11 +138,30 @@ export default function DashboardPage() {
                                         {agent.walletAddress || "Provisioning wallet..."}
                                     </p>
                                 </div>
-                                <span
-                                    className={`rounded-full border px-3 py-0.5 text-xs font-medium ${STATUS_STYLES[agent.status] ?? STATUS_STYLES.idle}`}
-                                >
-                                    {agent.status}
-                                </span>
+                                <div className="flex items-center gap-3">
+                                    <span
+                                        className={`rounded-full border px-3 py-0.5 text-xs font-medium ${STATUS_STYLES[agent.status] ?? STATUS_STYLES.idle}`}
+                                    >
+                                        {agent.status}
+                                    </span>
+                                    <button
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            if (confirm("Are you sure you want to delete this agent?")) {
+                                                deleteAgentMutation.mutate(agent.id);
+                                            }
+                                        }}
+                                        disabled={deleteAgentMutation.isPending}
+                                        className="text-gray-500 hover:text-red-400 p-1.5 rounded-md hover:bg-red-500/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title="Delete Agent"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M3 6h18"></path>
+                                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
                             <div className="mt-4 flex items-center gap-6 text-sm text-gray-400">
                                 <span className="flex items-center gap-1.5">

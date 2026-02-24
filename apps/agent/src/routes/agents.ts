@@ -122,3 +122,43 @@ agentsRouter.get(
             res.status(500).json({ error: "Internal server error" });
         }
     });
+
+// DELETE /agents/:id — securely delete an agent
+agentsRouter.delete(
+    "/:id",
+    requireAuth as (req: Request, res: Response, next: NextFunction) => void,
+    async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+        try {
+            const { id } = req.params as { id: string };
+            const ownerId = req.user?.walletAddress;
+
+            if (!ownerId) {
+                res.status(401).json({ error: "Unauthorized access token" });
+                return;
+            }
+
+            const agent = await prisma.agent.findUnique({
+                where: { id },
+            });
+
+            if (!agent) {
+                res.status(404).json({ error: "Agent not found" });
+                return;
+            }
+
+            // Authorization: Ensure the requester actually owns this agent
+            if (agent.ownerId !== ownerId) {
+                res.status(403).json({ error: "Forbidden: You do not own this agent" });
+                return;
+            }
+
+            await prisma.agent.delete({
+                where: { id },
+            });
+
+            res.status(200).json({ success: true, message: "Agent deleted successfully" });
+        } catch (err) {
+            console.error("[DELETE /agents/:id]", err);
+            res.status(500).json({ error: "Internal server error" });
+        }
+    });
