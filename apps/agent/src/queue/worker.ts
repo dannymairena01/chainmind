@@ -81,7 +81,7 @@ async function initializeAgent(agentId: string) {
     // Instantiate or Hydrate the Coinbase CDP Wallet
     const walletProvider = await CdpWalletProvider.configureWithWallet({
         apiKeyName: process.env.CDP_API_KEY_NAME!,
-        apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY!,
+        apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY!.replace(/\\n/g, "\n"),
         networkId: "base-sepolia",
         cdpWalletData: walletDataStr,
     });
@@ -106,7 +106,7 @@ async function initializeAgent(agentId: string) {
             erc20ActionProvider(),
             cdpApiActionProvider({
                 apiKeyName: process.env.CDP_API_KEY_NAME!,
-                apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY!,
+                apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY!.replace(/\\n/g, "\n"),
             }),
         ],
     });
