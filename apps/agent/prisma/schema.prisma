@@ -15,6 +15,7 @@ model Agent {
   description   String?
   status        String   @default("idle")
   walletAddress String?
+  cdpWalletData String?  @db.Text
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }

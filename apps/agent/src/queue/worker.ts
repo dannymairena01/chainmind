@@ -8,8 +8,25 @@
  */
 
 import dotenv from "dotenv";
+import { PrismaClient } from "@prisma/client";
+
+// LangChain & Coinbase AgentKit
+import { ChatOpenAI } from "@langchain/openai";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { MemorySaver } from "@langchain/langgraph";
+import { getLangChainTools } from "@coinbase/agentkit-langchain";
+import {
+    AgentKit,
+    CdpWalletProvider,
+    wethActionProvider,
+    walletActionProvider,
+    erc20ActionProvider,
+    cdpApiActionProvider,
+} from "@coinbase/agentkit";
 
 dotenv.config();
+
+const prisma = new PrismaClient();
 
 // ─── Job Payload Types ────────────────────────────────────────────────────────
 
@@ -48,6 +65,70 @@ export const agentQueue: QueueLike = {
     },
 };
 
+// ─── Agent Execution Logic ───────────────────────────────────────────────────
+
+async function initializeAgent(agentId: string) {
+    const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+    if (!agent) throw new Error("Agent not found in database");
+
+    const llm = new ChatOpenAI({
+        model: "gpt-4o-mini",
+        apiKey: process.env.OPENAI_API_KEY,
+    });
+
+    let walletDataStr = agent.cdpWalletData || undefined;
+
+    // Instantiate or Hydrate the Coinbase CDP Wallet
+    const walletProvider = await CdpWalletProvider.configureWithWallet({
+        apiKeyName: process.env.CDP_API_KEY_NAME!,
+        apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY!,
+        networkId: "base-sepolia",
+        cdpWalletData: walletDataStr,
+    });
+
+    // Save the created wallet securely back to the persistent agent context
+    if (!walletDataStr) {
+        const exportedWallet = await walletProvider.exportWallet();
+        await prisma.agent.update({
+            where: { id: agentId },
+            data: {
+                cdpWalletData: JSON.stringify(exportedWallet),
+                walletAddress: await walletProvider.getAddress(),
+            },
+        });
+    }
+
+    const agentkit = await AgentKit.from({
+        walletProvider,
+        actionProviders: [
+            wethActionProvider(),
+            walletActionProvider(),
+            erc20ActionProvider(),
+            cdpApiActionProvider({
+                apiKeyName: process.env.CDP_API_KEY_NAME!,
+                apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY!,
+            }),
+        ],
+    });
+
+    const tools = await getLangChainTools(agentkit);
+    const memory = new MemorySaver();
+    const config = { configurable: { thread_id: agentId } };
+
+    // Set the behavioral instructions of the agent based on user configuration
+    const messageModifier = `You are a helpful Web3 autonomous agent named '${agent.name}' operating on Base Sepolia. Your core objective is: ${agent.taskType}. 
+User Instructions: ${agent.description || "Do your best to accomplish the goal using your available tools."}`;
+
+    const reactAgent = createReactAgent({
+        llm,
+        tools,
+        checkpointSaver: memory,
+        messageModifier,
+    });
+
+    return { reactAgent, config, agent };
+}
+
 // ─── Worker ───────────────────────────────────────────────────────────────────
 
 let _workerStarted = false;
@@ -76,9 +157,38 @@ export async function startWorker(): Promise<void> {
             "agent-tasks",
             async (job) => {
                 const { agentId, taskType } = job.data;
-                console.log(`[Worker] job=${job.id} agent=${agentId} task=${taskType}`);
-                // TODO: LLM → AgentKit → EAS
-                console.log(`[Worker] job=${job.id} done (stub)`);
+                console.log(`[Worker] Started job=${job.id} for agent=${agentId} task=${taskType}`);
+
+                await prisma.agent.update({
+                    where: { id: agentId },
+                    data: { status: "active" }
+                });
+
+                try {
+                    const { reactAgent, config } = await initializeAgent(agentId);
+
+                    const stream = await reactAgent.stream(
+                        { messages: [{ role: "user", content: `Please execute your assigned task objective: ${taskType}. Use your tools dynamically to achieve this.` }] },
+                        config
+                    );
+
+                    for await (const chunk of stream) {
+                        if (chunk.agent?.messages && chunk.agent.messages.length > 0) {
+                            console.log(`[Agent ${agentId}]`, chunk.agent.messages[0].content);
+                        } else if (chunk.tools) {
+                            console.log(`[Agent ${agentId}] Autonomous Tool Execution triggered`);
+                        }
+                    }
+
+                    console.log(`[Worker] Job=${job.id} mapped to agent=${agentId} completed execution`);
+                } catch (err: any) {
+                    console.error(`[Worker] Execution error for agent ${agentId}:`, err.message);
+                    await prisma.agent.update({
+                        where: { id: agentId },
+                        data: { status: "error" }
+                    });
+                    throw err; // Trigger BullMQ fail/retry
+                }
             },
             { connection: conn, concurrency: 5 }
         );
