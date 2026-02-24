@@ -5,7 +5,7 @@ import { agentsRouter } from "./routes/agents";
 import { healthRouter } from "./routes/health";
 import { startWorker } from "./queue/worker";
 
-dotenv.config();
+dotenv.config({ path: "../../.env" });
 
 const app: express.Application = express();
 const PORT = Number(process.env["PORT"] ?? 3001);

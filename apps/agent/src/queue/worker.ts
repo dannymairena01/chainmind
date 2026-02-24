@@ -24,7 +24,7 @@ import {
     cdpApiActionProvider,
 } from "@coinbase/agentkit";
 
-dotenv.config();
+dotenv.config({ path: "../../.env" });
 
 const prisma = new PrismaClient();
 

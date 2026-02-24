@@ -63,11 +63,16 @@ export default function NewAgentPage() {
                     body: JSON.stringify({
                         name: form.name,
                         taskType: form.taskType,
+                        description: form.description,
                     }),
                 }
             );
 
-            if (!res.ok) throw new Error("Failed to create agent");
+            if (!res.ok) {
+                const errText = await res.text();
+                console.error("[Frontend Agent Fetch Error] HTTP", res.status, errText);
+                throw new Error("Failed to create agent: " + errText);
+            }
 
             const data = (await res.json()) as { agentId: string };
             router.push(`/agents/${data.agentId}`);
