@@ -14,6 +14,8 @@ interface AgentActivity {
 
 interface AgentDetail {
     agentId: string;
+    name: string;
+    taskType: string;
     status: "active" | "idle" | "error";
     walletAddress: string;
     balance: string;
@@ -92,12 +94,14 @@ export default function AgentDetailPage() {
                 <div className="flex items-start justify-between">
                     <div>
                         <h1 className="text-2xl font-bold text-white">
-                            Agent{" "}
-                            <span className="font-mono text-indigo-400">
-                                {agent.agentId}
-                            </span>
+                            {agent.name}
                         </h1>
-                        <p className="text-sm font-mono text-gray-500 mt-1">
+                        <p className="text-sm text-gray-400 mt-1 flex items-center gap-2">
+                            <span className="bg-indigo-500/20 text-indigo-300 px-2.5 py-0.5 rounded-full text-xs font-semibold">
+                                {agent.taskType}
+                            </span>
+                        </p>
+                        <p className="text-sm font-mono text-gray-500 mt-2">
                             Wallet:{" "}
                             <span className="text-gray-300">{agent.walletAddress || "—"}</span>
                         </p>
