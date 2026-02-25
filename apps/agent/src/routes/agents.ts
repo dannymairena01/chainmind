@@ -1,24 +1,41 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { PrismaClient } from "@prisma/client";
+import { z, ZodError } from "zod";
 import { agentQueue } from "../queue/worker";
 import { requireAuth, AuthenticatedRequest } from "../middleware/auth";
+import { fetchAttestations } from "../lib/eas";
 
 export const agentsRouter: Router = Router();
 const prisma = new PrismaClient();
 
-// GET /agents?ownerId=... — fetch all agents belonging to the authenticated user
+// ─── Zod Schemas ──────────────────────────────────────────────────────────────
+
+const CreateAgentSchema = z.object({
+    name: z.string().min(1, "Name is required").max(100, "Name must be 100 chars or less").trim(),
+    taskType: z.enum(["SWAP", "MONITOR", "ALERT"], {
+        errorMap: () => ({ message: "taskType must be one of: SWAP, MONITOR, ALERT" }),
+    }),
+    description: z.string().max(500).optional(),
+});
+
+// ─── Helper ───────────────────────────────────────────────────────────────────
+
+function handleZodError(err: ZodError, res: Response): void {
+    res.status(400).json({
+        error: "Validation failed",
+        errors: err.errors.map((e) => ({ field: e.path.join("."), message: e.message })),
+    });
+}
+
+// ─── GET /agents — list all agents for the authenticated user ─────────────────
+
 agentsRouter.get(
     "/",
     requireAuth as (req: Request, res: Response, next: NextFunction) => void,
     async (req: AuthenticatedRequest, res: Response): Promise<void> => {
         try {
-            // Securely extract the ownerId directly from the verified token
             const ownerId = req.user?.walletAddress;
-
-            if (!ownerId) {
-                res.status(401).json({ error: "Unauthorized access token" });
-                return;
-            }
+            if (!ownerId) { res.status(401).json({ error: "Unauthorized access token" }); return; }
 
             const agents = await prisma.agent.findMany({
                 where: { ownerId },
@@ -33,36 +50,25 @@ agentsRouter.get(
     }
 );
 
-// POST /agents — create a new agent
+// ─── POST /agents — create a new agent (Zod-validated) ───────────────────────
+
 agentsRouter.post(
     "/",
     requireAuth as (req: Request, res: Response, next: NextFunction) => void,
     async (req: AuthenticatedRequest, res: Response): Promise<void> => {
         try {
-            const { name, taskType } = req.body as {
-                name: string;
-                taskType: string;
-            };
-
-            // Securely extract the ownerId directly from the verified token
             const ownerId = req.user?.walletAddress;
+            if (!ownerId) { res.status(401).json({ error: "Unauthorized access token" }); return; }
 
-            if (!ownerId) {
-                res.status(401).json({ error: "Unauthorized access token" });
-                return;
-            }
+            const parsed = CreateAgentSchema.safeParse(req.body);
+            if (!parsed.success) { handleZodError(parsed.error, res); return; }
 
-            if (!name || !taskType) {
-                res.status(400).json({ error: "name and taskType are required" });
-                return;
-            }
+            const { name, taskType, description } = parsed.data;
 
-            // Persist agent record in PostgreSQL
             const newAgent = await prisma.agent.create({
-                data: { ownerId, name, taskType },
+                data: { ownerId, name, taskType, description },
             });
 
-            // Queue the first agent job for background execution
             await agentQueue.add(
                 "run-agent",
                 { agentId: newAgent.id, ownerId, taskType },
@@ -77,9 +83,11 @@ agentsRouter.post(
             console.error("[POST /agents]", err);
             res.status(500).json({ error: "Internal server error" });
         }
-    });
+    }
+);
 
-// GET /agents/:id — return specific agent details (strictly verified by ownership)
+// ─── GET /agents/:id — agent detail + real EAS attestations ──────────────────
+
 agentsRouter.get(
     "/:id",
     requireAuth as (req: Request, res: Response, next: NextFunction) => void,
@@ -87,43 +95,34 @@ agentsRouter.get(
         try {
             const { id } = req.params as { id: string };
             const ownerId = req.user?.walletAddress;
+            if (!ownerId) { res.status(401).json({ error: "Unauthorized access token" }); return; }
 
-            if (!ownerId) {
-                res.status(401).json({ error: "Unauthorized access token" });
-                return;
-            }
+            const agent = await prisma.agent.findUnique({ where: { id } });
+            if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+            if (agent.ownerId !== ownerId) { res.status(403).json({ error: "Forbidden: You do not own this agent" }); return; }
 
-            const agent = await prisma.agent.findUnique({
-                where: { id },
-            });
+            // Fetch real on-chain attestations from EAS GraphQL API
+            const recentActivity = agent.walletAddress
+                ? await fetchAttestations(agent.walletAddress)
+                : [];
 
-            if (!agent) {
-                res.status(404).json({ error: "Agent not found" });
-                return;
-            }
-
-            // Authorization: Ensure the requester actually owns this agent
-            if (agent.ownerId !== ownerId) {
-                res.status(403).json({ error: "Forbidden: You do not own this agent" });
-                return;
-            }
-
-            // TODO: look up on-chain attestations/recent activity
             res.status(200).json({
                 agentId: agent.id,
                 status: agent.status,
                 name: agent.name,
                 taskType: agent.taskType,
                 walletAddress: agent.walletAddress,
-                recentActivity: [],
+                recentActivity,
             });
         } catch (err) {
             console.error("[GET /agents/:id]", err);
             res.status(500).json({ error: "Internal server error" });
         }
-    });
+    }
+);
 
-// DELETE /agents/:id — securely delete an agent
+// ─── DELETE /agents/:id ───────────────────────────────────────────────────────
+
 agentsRouter.delete(
     "/:id",
     requireAuth as (req: Request, res: Response, next: NextFunction) => void,
@@ -131,34 +130,17 @@ agentsRouter.delete(
         try {
             const { id } = req.params as { id: string };
             const ownerId = req.user?.walletAddress;
+            if (!ownerId) { res.status(401).json({ error: "Unauthorized access token" }); return; }
 
-            if (!ownerId) {
-                res.status(401).json({ error: "Unauthorized access token" });
-                return;
-            }
+            const agent = await prisma.agent.findUnique({ where: { id } });
+            if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+            if (agent.ownerId !== ownerId) { res.status(403).json({ error: "Forbidden: You do not own this agent" }); return; }
 
-            const agent = await prisma.agent.findUnique({
-                where: { id },
-            });
-
-            if (!agent) {
-                res.status(404).json({ error: "Agent not found" });
-                return;
-            }
-
-            // Authorization: Ensure the requester actually owns this agent
-            if (agent.ownerId !== ownerId) {
-                res.status(403).json({ error: "Forbidden: You do not own this agent" });
-                return;
-            }
-
-            await prisma.agent.delete({
-                where: { id },
-            });
-
+            await prisma.agent.delete({ where: { id } });
             res.status(200).json({ success: true, message: "Agent deleted successfully" });
         } catch (err) {
             console.error("[DELETE /agents/:id]", err);
             res.status(500).json({ error: "Internal server error" });
         }
-    });
+    }
+);

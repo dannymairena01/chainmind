@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useRouter } from "next/navigation";
+import { z } from "zod";
 
-type TaskType = "MONITOR" | "SWAP" | "ANALYZE";
+type TaskType = "MONITOR" | "SWAP" | "ALERT";
 
 interface NewAgentForm {
     name: string;
@@ -15,19 +16,28 @@ interface NewAgentForm {
 const TASK_OPTIONS: { value: TaskType; label: string; icon: string }[] = [
     { value: "MONITOR", label: "Monitor Wallet", icon: "👁️" },
     { value: "SWAP", label: "Execute Swaps", icon: "🔄" },
-    { value: "ANALYZE", label: "Analyze Data", icon: "📊" },
+    { value: "ALERT", label: "Price Alert", icon: "🔔" },
 ];
+
+const CreateAgentSchema = z.object({
+    name: z.string().min(1, "Agent name is required").max(100, "Name must be 100 chars or less"),
+    taskType: z.enum(["SWAP", "MONITOR", "ALERT"]),
+    description: z.string().max(500, "Instructions must be 500 chars or less").optional(),
+});
+
+type FormErrors = Partial<Record<keyof z.infer<typeof CreateAgentSchema>, string>>;
 
 export default function NewAgentPage() {
     const { user, authenticated, login, getAccessToken } = usePrivy();
     const router = useRouter();
-    const [form, setForm] = useState<NewAgentForm>({
+    const [form, setForm] = useState<{ name: string; taskType: TaskType; description: string }>({
         name: "",
         taskType: "MONITOR",
         description: "",
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [fieldErrors, setFieldErrors] = useState<FormErrors>({});
 
     if (!authenticated) {
         return (
@@ -46,6 +56,20 @@ export default function NewAgentPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!user?.wallet?.address) return;
+
+        // Client-side Zod validation before hitting the API
+        const parsed = CreateAgentSchema.safeParse(form);
+        if (!parsed.success) {
+            const errors: FormErrors = {};
+            for (const issue of parsed.error.issues) {
+                const field = issue.path[0] as keyof FormErrors;
+                errors[field] = issue.message;
+            }
+            setFieldErrors(errors);
+            return;
+        }
+        setFieldErrors({});
+
         setLoading(true);
         setError(null);
 
@@ -60,18 +84,16 @@ export default function NewAgentPage() {
                         "Content-Type": "application/json",
                         Authorization: `Bearer ${token}`,
                     },
-                    body: JSON.stringify({
-                        name: form.name,
-                        taskType: form.taskType,
-                        description: form.description,
-                    }),
+                    body: JSON.stringify(parsed.data),
                 }
             );
 
             if (!res.ok) {
-                const errText = await res.text();
-                console.error("[Frontend Agent Fetch Error] HTTP", res.status, errText);
-                throw new Error("Failed to create agent: " + errText);
+                const body = await res.json() as { error?: string; errors?: { field: string; message: string }[] };
+                const msg = body.errors
+                    ? body.errors.map((e) => `${e.field}: ${e.message}`).join(", ")
+                    : body.error ?? "Failed to create agent";
+                throw new Error(msg);
             }
 
             const data = (await res.json()) as { agentId: string };
@@ -98,12 +120,13 @@ export default function NewAgentPage() {
                     </label>
                     <input
                         type="text"
-                        required
                         value={form.name}
-                        onChange={(e) => setForm({ ...form, name: e.target.value })}
+                        onChange={(e) => { setForm({ ...form, name: e.target.value }); setFieldErrors((p) => ({ ...p, name: undefined })); }}
                         placeholder="e.g. Alpha Monitor"
-                        className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-gray-600 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
+                        className={`w-full rounded-lg border bg-white/5 px-4 py-3 text-white placeholder-gray-600 outline-none focus:ring-1 transition ${fieldErrors.name ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-white/10 focus:border-indigo-500 focus:ring-indigo-500"
+                            }`}
                     />
+                    {fieldErrors.name && <p className="mt-1.5 text-xs text-red-400">{fieldErrors.name}</p>}
                 </div>
 
                 {/* Task Type */}
@@ -151,7 +174,7 @@ export default function NewAgentPage() {
 
                 <button
                     type="submit"
-                    disabled={loading || !form.name}
+                    disabled={loading}
                     className="w-full rounded-lg bg-indigo-600 py-3 font-semibold text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     {loading ? "Deploying Agent…" : "Deploy Agent →"}

@@ -23,6 +23,7 @@ import {
     erc20ActionProvider,
     cdpApiActionProvider,
 } from "@coinbase/agentkit";
+import { writeAttestation } from "../lib/eas";
 
 dotenv.config({ path: "../../.env" });
 
@@ -165,7 +166,9 @@ export async function startWorker(): Promise<void> {
                 });
 
                 try {
-                    const { reactAgent, config } = await initializeAgent(agentId);
+                    const { reactAgent, config, agent: agentRecord } = await initializeAgent(agentId);
+
+                    const agentMessages: string[] = [];
 
                     const stream = await reactAgent.stream(
                         { messages: [{ role: "user", content: `Please execute your assigned task objective: ${taskType}. Use your tools dynamically to achieve this.` }] },
@@ -174,11 +177,31 @@ export async function startWorker(): Promise<void> {
 
                     for await (const chunk of stream) {
                         if (chunk.agent?.messages && chunk.agent.messages.length > 0) {
-                            console.log(`[Agent ${agentId}]`, chunk.agent.messages[0].content);
+                            const msg = String(chunk.agent.messages[0].content);
+                            agentMessages.push(msg);
+                            console.log(`[Agent ${agentId}]`, msg);
                         } else if (chunk.tools) {
                             console.log(`[Agent ${agentId}] Autonomous Tool Execution triggered`);
                         }
                     }
+
+                    // Write an EAS attestation recording this agent action
+                    if (agentRecord.walletAddress) {
+                        const rationale = agentMessages.join(" ").slice(0, 500) || `Executed task: ${taskType}`;
+                        await writeAttestation({
+                            agentWallet: agentRecord.walletAddress,
+                            actionType: taskType,
+                            rationale,
+                        }).catch((err: Error) =>
+                            console.warn(`[EAS] Attestation failed (non-fatal): ${err.message}`)
+                        );
+                    }
+
+                    // Mark agent as idle (ready for next job)
+                    await prisma.agent.update({
+                        where: { id: agentId },
+                        data: { status: "idle" },
+                    });
 
                     console.log(`[Worker] Job=${job.id} mapped to agent=${agentId} completed execution`);
                 } catch (err: any) {

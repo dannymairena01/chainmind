@@ -140,21 +140,36 @@ export default function AgentDetailPage() {
                         {agent.recentActivity.map((activity, i) => (
                             <div
                                 key={i}
-                                className="flex items-start justify-between rounded-xl border border-white/5 bg-white/3 px-4 py-3"
+                                className="rounded-xl border border-white/5 bg-white/3 px-4 py-3"
                             >
-                                <div>
-                                    <p className="text-sm font-medium text-white">
-                                        {activity.action}
+                                <div className="flex items-start justify-between gap-4">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-sm font-semibold text-white">
+                                                {activity.action}
+                                            </span>
+                                        </div>
+                                        {(activity as { rationale?: string }).rationale && (
+                                            <p className="text-xs text-gray-500 truncate mt-0.5">
+                                                {(activity as { rationale?: string }).rationale}
+                                            </p>
+                                        )}
+                                        {activity.attestationUID && (
+                                            <a
+                                                href={`https://base-sepolia.easscan.org/attestation/view/${activity.attestationUID}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-xs text-indigo-400 font-mono mt-1 hover:text-indigo-300 transition inline-flex items-center gap-1"
+                                            >
+                                                EAS: {activity.attestationUID.slice(0, 18)}…
+                                                <span className="text-[10px] opacity-60">↗</span>
+                                            </a>
+                                        )}
+                                    </div>
+                                    <p className="text-xs text-gray-600 whitespace-nowrap shrink-0">
+                                        {new Date(activity.timestamp).toLocaleTimeString()}
                                     </p>
-                                    {activity.attestationUID && (
-                                        <p className="text-xs text-indigo-400 font-mono mt-0.5">
-                                            EAS: {activity.attestationUID.slice(0, 20)}…
-                                        </p>
-                                    )}
                                 </div>
-                                <p className="text-xs text-gray-600 whitespace-nowrap ml-4">
-                                    {new Date(activity.timestamp).toLocaleTimeString()}
-                                </p>
                             </div>
                         ))}
                     </div>
