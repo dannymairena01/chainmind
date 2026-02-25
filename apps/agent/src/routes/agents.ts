@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { PrismaClient } from "@prisma/client";
 import { z, ZodError } from "zod";
+import { ethers } from "ethers";
 import { agentQueue } from "../queue/worker";
 import { requireAuth, AuthenticatedRequest } from "../middleware/auth";
 import { fetchAttestations } from "../lib/eas";
@@ -106,12 +107,27 @@ agentsRouter.get(
                 ? await fetchAttestations(agent.walletAddress)
                 : [];
 
+            // Fetch real ETH balance from Alchemy RPC
+            let balance = "0";
+            if (agent.walletAddress) {
+                try {
+                    const provider = new ethers.JsonRpcProvider(
+                        process.env["BASE_SEPOLIA_RPC_URL"] ?? "https://sepolia.base.org"
+                    );
+                    const rawBalance = await provider.getBalance(agent.walletAddress);
+                    balance = parseFloat(ethers.formatEther(rawBalance)).toFixed(4);
+                } catch {
+                    // Non-fatal: balance stays "0" if RPC unavailable
+                }
+            }
+
             res.status(200).json({
                 agentId: agent.id,
                 status: agent.status,
                 name: agent.name,
                 taskType: agent.taskType,
                 walletAddress: agent.walletAddress,
+                balance,
                 recentActivity,
             });
         } catch (err) {
@@ -140,6 +156,36 @@ agentsRouter.delete(
             res.status(200).json({ success: true, message: "Agent deleted successfully" });
         } catch (err) {
             console.error("[DELETE /agents/:id]", err);
+            res.status(500).json({ error: "Internal server error" });
+        }
+    }
+);
+
+// ─── POST /agents/:id/run — manually trigger a new job for an existing agent ──
+
+agentsRouter.post(
+    "/:id/run",
+    requireAuth as (req: Request, res: Response, next: NextFunction) => void,
+    async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+        try {
+            const { id } = req.params as { id: string };
+            const ownerId = req.user?.walletAddress;
+            if (!ownerId) { res.status(401).json({ error: "Unauthorized access token" }); return; }
+
+            const agent = await prisma.agent.findUnique({ where: { id } });
+            if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+            if (agent.ownerId !== ownerId) { res.status(403).json({ error: "Forbidden" }); return; }
+            if (agent.status === "active") { res.status(409).json({ error: "Agent is already running" }); return; }
+
+            await agentQueue.add(
+                "run-agent",
+                { agentId: agent.id, ownerId, taskType: agent.taskType },
+                { attempts: 3, backoff: { type: "exponential", delay: 1000 } }
+            );
+
+            res.status(202).json({ message: "Job queued successfully" });
+        } catch (err) {
+            console.error("[POST /agents/:id/run]", err);
             res.status(500).json({ error: "Internal server error" });
         }
     }
