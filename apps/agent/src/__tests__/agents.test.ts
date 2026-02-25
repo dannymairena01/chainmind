@@ -134,6 +134,8 @@ describe("Agent API Endpoints", () => {
             expect(prisma.agent.findMany).toHaveBeenCalledWith({
                 where: { ownerId: "0x123" },
                 orderBy: { createdAt: "desc" },
+                take: 20,
+                skip: 0,
             });
         });
 
