@@ -37,3 +37,6 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+
+# Coinbase CDP API key (one-time download — never commit!)
+cdp_api_key*.json
