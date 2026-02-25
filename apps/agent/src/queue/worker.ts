@@ -17,7 +17,7 @@ import { MemorySaver } from "@langchain/langgraph";
 import { getLangChainTools } from "@coinbase/agentkit-langchain";
 import {
     AgentKit,
-    CdpWalletProvider,
+    CdpEvmWalletProvider,
     wethActionProvider,
     walletActionProvider,
     erc20ActionProvider,
@@ -79,22 +79,47 @@ async function initializeAgent(agentId: string) {
 
     let walletDataStr = agent.cdpWalletData || undefined;
 
-    // Instantiate or Hydrate the Coinbase CDP Wallet
-    const walletProvider = await CdpWalletProvider.configureWithWallet({
-        apiKeyName: process.env.CDP_API_KEY_NAME!,
-        apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY!.replace(/\\n/g, "\n"),
-        networkId: "base-sepolia",
-        cdpWalletData: walletDataStr,
-    });
+    // Parse saved wallet address for re-use
+    let savedAddress: string | undefined;
+    if (walletDataStr) {
+        try {
+            const parsed = JSON.parse(walletDataStr) as { address?: string };
+            savedAddress = parsed.address;
+        } catch { /* ignore */ }
+    }
 
-    // Save the created wallet securely back to the persistent agent context
+    const apiKeyId = process.env["CDP_API_KEY_ID"] ?? "";
+    const apiKeySecret = process.env["CDP_API_KEY_SECRET"] ?? "";
+    const walletSecret = process.env["CDP_WALLET_SECRET"] || undefined;
+
+    console.log(`[CDP] Using apiKeyId: ${apiKeyId}`);
+    console.log(`[CDP] apiKeySecret present: ${Boolean(apiKeySecret)}`);
+    console.log(`[CDP] walletSecret present: ${Boolean(walletSecret)}`);
+
+    // Instantiate or re-use the CDP EVM Wallet (new API v2)
+    let walletProvider;
+    try {
+        walletProvider = await CdpEvmWalletProvider.configureWithWallet({
+            apiKeyId,
+            apiKeySecret,
+            walletSecret,
+            networkId: "base-sepolia",
+            address: savedAddress as `0x${string}` | undefined,
+        });
+    } catch (cdpErr: any) {
+        console.error("[CDP] Full error:", JSON.stringify(cdpErr, Object.getOwnPropertyNames(cdpErr)));
+        throw new Error(`Failed to initialize wallet: ${cdpErr?.message ?? String(cdpErr)}`);
+    }
+
+    // Save the created wallet address back to the DB (first run only)
     if (!walletDataStr) {
-        const exportedWallet = await walletProvider.exportWallet();
+        const walletAddress = walletProvider.getAddress();
+        const exported = await walletProvider.exportWallet();
         await prisma.agent.update({
             where: { id: agentId },
             data: {
-                cdpWalletData: JSON.stringify(exportedWallet),
-                walletAddress: await walletProvider.getAddress(),
+                cdpWalletData: JSON.stringify(exported),
+                walletAddress,
             },
         });
     }
@@ -105,10 +130,7 @@ async function initializeAgent(agentId: string) {
             wethActionProvider(),
             walletActionProvider(),
             erc20ActionProvider(),
-            cdpApiActionProvider({
-                apiKeyName: process.env.CDP_API_KEY_NAME!,
-                apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY!.replace(/\\n/g, "\n"),
-            }),
+            cdpApiActionProvider(),
         ],
     });
 
