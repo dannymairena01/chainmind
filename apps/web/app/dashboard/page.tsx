@@ -51,20 +51,6 @@ export default function DashboardPage() {
         refetchInterval: 10_000,
     });
 
-    if (!authenticated) {
-        return (
-            <main className="flex min-h-screen flex-col items-center justify-center">
-                <p className="text-gray-400 mb-4">Connect your wallet to view your agents.</p>
-                <button
-                    onClick={login}
-                    className="rounded-lg bg-indigo-600 px-6 py-3 font-semibold text-white hover:bg-indigo-500 transition"
-                >
-                    Connect Wallet
-                </button>
-            </main>
-        );
-    }
-
     const deleteAgentMutation = useMutation({
         mutationFn: async (agentId: string) => {
             const token = await getAccessToken();
@@ -83,6 +69,20 @@ export default function DashboardPage() {
             queryClient.invalidateQueries({ queryKey: ["agents", user?.wallet?.address] });
         },
     });
+
+    if (!authenticated) {
+        return (
+            <main className="flex min-h-screen flex-col items-center justify-center">
+                <p className="text-gray-400 mb-4">Connect your wallet to view your agents.</p>
+                <button
+                    onClick={login}
+                    className="rounded-lg bg-indigo-600 px-6 py-3 font-semibold text-white hover:bg-indigo-500 transition"
+                >
+                    Connect Wallet
+                </button>
+            </main>
+        );
+    }
 
     return (
         <main className="mx-auto max-w-5xl px-6 py-12">
