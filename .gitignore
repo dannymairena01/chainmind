@@ -40,3 +40,4 @@ Thumbs.db
 
 # Coinbase CDP API key (one-time download — never commit!)
 cdp_api_key*.json
+cdp_wallet_secret*.txt
