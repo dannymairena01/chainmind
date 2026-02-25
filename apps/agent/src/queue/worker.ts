@@ -184,7 +184,7 @@ export async function startWorker(): Promise<void> {
 
                 await prisma.agent.update({
                     where: { id: agentId },
-                    data: { status: "active" }
+                    data: { status: "active", lastAction: "Initializing agent and checking wallet..." }
                 });
 
                 try {
@@ -204,6 +204,10 @@ export async function startWorker(): Promise<void> {
                             console.log(`[Agent ${agentId}]`, msg);
                         } else if (chunk.tools) {
                             console.log(`[Agent ${agentId}] Autonomous Tool Execution triggered`);
+                            await prisma.agent.update({
+                                where: { id: agentId },
+                                data: { lastAction: "Executing autonomous tool..." }
+                            });
                         }
                     }
 
@@ -222,7 +226,7 @@ export async function startWorker(): Promise<void> {
                     // Mark agent as idle (ready for next job)
                     await prisma.agent.update({
                         where: { id: agentId },
-                        data: { status: "idle" },
+                        data: { status: "idle", lastAction: agentMessages.slice(-1)[0]?.slice(0, 100) || "Task completed successfully" },
                     });
 
                     console.log(`[Worker] Job=${job.id} mapped to agent=${agentId} completed execution`);

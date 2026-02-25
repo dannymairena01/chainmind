@@ -14,6 +14,7 @@ model Agent {
   taskType      String
   description   String?
   status        String   @default("idle")
+  lastAction    String?
   walletAddress String?
   cdpWalletData String?  @db.Text
   createdAt     DateTime @default(now())

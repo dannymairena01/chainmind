@@ -36,11 +36,16 @@ agentsRouter.get(
     async (req: AuthenticatedRequest, res: Response): Promise<void> => {
         try {
             const ownerId = req.user?.walletAddress;
+            const take = parseInt((req.query.take as string) || "20", 10);
+            const skip = parseInt((req.query.skip as string) || "0", 10);
+
             if (!ownerId) { res.status(401).json({ error: "Unauthorized access token" }); return; }
 
             const agents = await prisma.agent.findMany({
                 where: { ownerId },
                 orderBy: { createdAt: "desc" },
+                take,
+                skip,
             });
 
             res.status(200).json({ agents });
@@ -96,6 +101,9 @@ agentsRouter.get(
         try {
             const { id } = req.params as { id: string };
             const ownerId = req.user?.walletAddress;
+            const take = parseInt((req.query.take as string) || "20", 10);
+            const skip = parseInt((req.query.skip as string) || "0", 10);
+
             if (!ownerId) { res.status(401).json({ error: "Unauthorized access token" }); return; }
 
             const agent = await prisma.agent.findUnique({ where: { id } });
@@ -104,7 +112,7 @@ agentsRouter.get(
 
             // Fetch real on-chain attestations from EAS GraphQL API
             const recentActivity = agent.walletAddress
-                ? await fetchAttestations(agent.walletAddress)
+                ? await fetchAttestations(agent.walletAddress, take, skip)
                 : [];
 
             // Fetch real ETH balance from Alchemy RPC
@@ -127,6 +135,7 @@ agentsRouter.get(
                 name: agent.name,
                 taskType: agent.taskType,
                 walletAddress: agent.walletAddress,
+                lastAction: agent.lastAction,
                 balance,
                 recentActivity,
             });

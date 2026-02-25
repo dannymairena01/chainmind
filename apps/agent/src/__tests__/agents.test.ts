@@ -66,7 +66,15 @@ describe("Agent API Endpoints", () => {
                 });
 
             expect(res.status).toBe(400);
-            expect(res.body.error).toBe("name and taskType are required");
+            expect(res.body.error).toBe("Validation failed");
+            expect(res.body.errors).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        field: "taskType",
+                        message: "taskType must be one of: SWAP, MONITOR, ALERT",
+                    }),
+                ])
+            );
             expect(prisma.agent.create).not.toHaveBeenCalled();
             expect(agentQueue.add).not.toHaveBeenCalled();
         });

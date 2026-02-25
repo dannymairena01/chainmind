@@ -86,7 +86,11 @@ export async function writeAttestation(
 /**
  * Fetch all attestations for a given agent wallet from the EAS GraphQL API.
  */
-export async function fetchAttestations(agentWallet: string): Promise<{
+export async function fetchAttestations(
+    agentWallet: string,
+    take: number = 20,
+    skip: number = 0
+): Promise<{
     uid: string;
     actionType: string;
     rationale: string;
@@ -99,14 +103,15 @@ export async function fetchAttestations(agentWallet: string): Promise<{
     }
 
     const query = `
-        query GetAttestations($recipient: String!, $schemaId: String!) {
+        query GetAttestations($recipient: String!, $schemaId: String!, $take: Int!, $skip: Int!) {
             attestations(
                 where: {
                     recipient: { equals: $recipient }
                     schemaId: { equals: $schemaId }
                 }
                 orderBy: { time: desc }
-                take: 20
+                take: $take
+                skip: $skip
             ) {
                 id
                 time
@@ -120,7 +125,7 @@ export async function fetchAttestations(agentWallet: string): Promise<{
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
             query,
-            variables: { recipient: agentWallet.toLowerCase(), schemaId: schemaUID },
+            variables: { recipient: agentWallet.toLowerCase(), schemaId: schemaUID, take, skip },
         }),
     });
 
