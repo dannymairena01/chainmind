@@ -5,14 +5,23 @@ import rateLimit from "express-rate-limit";
 import { agentsRouter } from "./routes/agents";
 import { healthRouter } from "./routes/health";
 import { startWorker } from "./queue/worker";
+import { validateEnv } from "./lib/validateEnv";
 
 dotenv.config({ path: "../../.env" });
+
+// Validate all critical environment variables before starting the server
+validateEnv();
 
 const app: express.Application = express();
 const PORT = Number(process.env["PORT"] ?? 3001);
 
 // ─── Middleware ────────────────────────────────────────────────────────────────
-app.use(cors());
+const FRONTEND_URL = process.env["NEXT_PUBLIC_FRONTEND_URL"] ?? "http://localhost:3000";
+
+app.use(cors({
+    origin: [FRONTEND_URL],
+    credentials: true,
+}));
 app.use(express.json());
 
 const apiLimiter = rateLimit({

@@ -43,6 +43,7 @@ export interface AgentJobData {
 // can start without Redis being present.
 type QueueLike = {
     add(name: string, data: AgentJobData, opts?: object): Promise<unknown>;
+    getJobs(types: string[]): Promise<any[]>;
 };
 
 let sharedQueueConn: any = null;
@@ -77,6 +78,23 @@ export const agentQueue: QueueLike = {
             return null;
         }
     },
+    async getJobs(types: string[]) {
+        const REDIS_URL = process.env["REDIS_URL"] ?? "redis://localhost:6379";
+        try {
+            const { Queue } = await import("bullmq");
+            const IORedis = (await import("ioredis")).default;
+
+            if (!sharedQueueConn) {
+                sharedQueueConn = new IORedis(REDIS_URL, { maxRetriesPerRequest: null });
+                agentQueueInstance = new Queue("agent-tasks", { connection: sharedQueueConn as any });
+            }
+
+            return agentQueueInstance.getJobs(types);
+        } catch (err) {
+            console.warn("[Queue] Redis unavailable — getJobs skipped:", (err as Error).message);
+            return [];
+        }
+    }
 };
 
 // ─── Agent Execution Logic ───────────────────────────────────────────────────
@@ -247,28 +265,51 @@ export async function startWorker(): Promise<void> {
                     // The raw user prompt is passed as a HumanMessage *after* the system prompt, mitigating prompt injection
                     const userMessage = `Please execute your assigned task objective: ${taskType}. Use your tools dynamically to achieve this.\n\nUser Instructions: ${agentRecord.description || "Do your best to accomplish the goal using your available tools."}`;
 
-                    const stream = await reactAgent.stream(
-                        { messages: [{ role: "user", content: userMessage }] },
-                        runConfig
-                    );
+                    // Check idempotency: Did this job ID already finish the stream in a previous failed attempt?
+                    if (agentRecord.pendingTxHash === String(job.id) && agentRecord.pendingRationale) {
+                        console.log(`[Worker] Job ${job.id} already completed LLM stream. Skipping to attestation.`);
+                        agentMessages.push(agentRecord.pendingRationale);
+                    } else {
+                        const stream = await reactAgent.stream(
+                            { messages: [{ role: "user", content: userMessage }] },
+                            runConfig
+                        );
 
-                    for await (const chunk of stream) {
-                        if (chunk.agent?.messages && chunk.agent.messages.length > 0) {
-                            const msg = String(chunk.agent.messages[0].content);
-                            agentMessages.push(msg);
-                            console.log(`[Agent ${agentId}]`, msg);
-                        } else if (chunk.tools) {
-                            console.log(`[Agent ${agentId}] Autonomous Tool Execution triggered`);
-                            await prisma.agent.update({
-                                where: { id: agentId },
-                                data: { lastAction: "Executing autonomous tool..." }
-                            });
+                        for await (const chunk of stream) {
+                            if (chunk.agent?.messages && chunk.agent.messages.length > 0) {
+                                const msg = String(chunk.agent.messages[0].content);
+                                agentMessages.push(msg);
+                                console.log(`[Agent ${agentId}]`, msg);
+                            } else if (chunk.tools) {
+                                console.log(`[Agent ${agentId}] Autonomous Tool Execution triggered`);
+                                await prisma.agent.update({
+                                    where: { id: agentId },
+                                    data: { lastAction: "Executing autonomous tool..." }
+                                });
+                            }
                         }
+
+                        // Determine the single final coherent message for the rationale (Fixes #8)
+                        const finalMessage = agentMessages.length > 0
+                            ? (agentMessages[agentMessages.length - 1] || "").slice(0, 500)
+                            : `Executed task: ${taskType}`;
+
+                        agentMessages.length = 0;
+                        agentMessages.push(finalMessage);
+
+                        // Checkpoint state to DB so retries skip the LLM/transactions
+                        await prisma.agent.update({
+                            where: { id: agentId },
+                            data: {
+                                pendingTxHash: String(job.id),
+                                pendingRationale: finalMessage
+                            }
+                        });
                     }
 
                     // Write an EAS attestation recording this agent action
                     if (agentRecord.walletAddress) {
-                        const rationale = agentMessages.join(" ").slice(0, 500) || `Executed task: ${taskType}`;
+                        const rationale = agentMessages[0] || `Executed task: ${taskType}`;
                         await writeAttestation({
                             agentWallet: agentRecord.walletAddress,
                             actionType: taskType,
@@ -278,10 +319,15 @@ export async function startWorker(): Promise<void> {
                         );
                     }
 
-                    // Mark agent as idle (ready for next job)
+                    // Mark agent as idle (ready for next job), clear checkpoint
                     await prisma.agent.update({
                         where: { id: agentId },
-                        data: { status: "idle", lastAction: agentMessages.slice(-1)[0]?.slice(0, 100) || "Task completed successfully" },
+                        data: {
+                            status: "idle",
+                            lastAction: `Finished job ${job.id}`,
+                            pendingTxHash: null,
+                            pendingRationale: null
+                        }
                     });
 
                     console.log(`[Worker] Job=${job.id} mapped to agent=${agentId} completed execution`);

@@ -1,11 +1,13 @@
 import crypto from "crypto";
 
 const ALGORITHM = "aes-256-gcm";
-const ENCRYPTION_KEY = process.env["ENCRYPTION_KEY"] || "00000000000000000000000000000000"; // 32 bytes
+const _cryptoKey = process.env["ENCRYPTION_KEY"];
 
-if (!process.env["ENCRYPTION_KEY"]) {
-    console.warn("[Encryption] WARNING: ENCRYPTION_KEY is not set in environment. Using insecure default. DO NOT USE IN PRODUCTION.");
+if (!_cryptoKey || _cryptoKey.length < 32) {
+    throw new Error("CRITICAL: ENCRYPTION_KEY is required and must be at least 32 characters long.");
 }
+
+const ENCRYPTION_KEY = _cryptoKey as string;
 
 /**
  * Encrypts a plaintext string using AES-256-GCM.

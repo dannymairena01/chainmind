@@ -5,6 +5,7 @@ import { ethers } from "ethers";
 import { agentQueue } from "../queue/worker";
 import { requireAuth, AuthenticatedRequest } from "../middleware/auth";
 import { fetchAttestations } from "../lib/eas";
+import rateLimit from "express-rate-limit";
 
 export const agentsRouter: Router = Router();
 const prisma = new PrismaClient();
@@ -58,9 +59,20 @@ agentsRouter.get(
 
 // ─── POST /agents — create a new agent (Zod-validated) ───────────────────────
 
+const createAgentLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour window
+    max: 5, // Limit each user to 5 agent creations per hour
+    message: { error: "Too many agents created. Please try again later." },
+    keyGenerator: (req: Request) => {
+        const authReq = req as AuthenticatedRequest;
+        return authReq.user?.privyUserId || req.ip || "unknown";
+    }
+});
+
 agentsRouter.post(
     "/",
     requireAuth as (req: Request, res: Response, next: NextFunction) => void,
+    createAgentLimiter,
     async (req: AuthenticatedRequest, res: Response): Promise<void> => {
         try {
             const ownerId = req.user?.privyUserId;
@@ -159,9 +171,21 @@ agentsRouter.delete(
 
             const agent = await prisma.agent.findUnique({ where: { id } });
             if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
-            if (agent.ownerId !== ownerId) { res.status(403).json({ error: "Forbidden: You do not own this agent" }); return; }
-
             await prisma.agent.delete({ where: { id } });
+
+            // Remove any pending/active/delayed BullMQ jobs for this agent to prevent DLQ pollution
+            try {
+                const jobs = await agentQueue.getJobs(["waiting", "active", "delayed", "paused"]);
+                const agentJobs = jobs.filter((job: any) => job.data && job.data.agentId === id);
+
+                for (const job of agentJobs) {
+                    await job.remove();
+                }
+                console.log(`[DELETE /agents/:id] Removed ${agentJobs.length} pending jobs for agent ${id}`);
+            } catch (jobErr) {
+                console.warn(`[DELETE /agents/:id] Failed to clean up BullMQ jobs for agent ${id}:`, jobErr);
+            }
+
             res.status(200).json({ success: true, message: "Agent deleted successfully" });
         } catch (err) {
             console.error("[DELETE /agents/:id]", err);

@@ -16,7 +16,9 @@ model Agent {
   status        String   @default("idle")
   lastAction    String?
   walletAddress String?
-  cdpWalletData String?  @db.Text
-  createdAt     DateTime @default(now())
+  cdpWalletData    String?  @db.Text
+  pendingTxHash    String?
+  pendingRationale String?  @db.Text
+  createdAt        DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
