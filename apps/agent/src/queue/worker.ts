@@ -169,10 +169,11 @@ async function initializeAgent(agentId: string) {
             },
         });
 
-        // Register the new agent wallet under its owner inside our AgentRegistry contract
-        await registerAgent(agent.ownerId, walletAddress).catch((err) =>
-            console.warn(`[Registry] Failed to register agent (non-fatal): ${err.message}`)
-        );
+        // TODO: agent.ownerId is a Privy internal ID (e.g. "clxxxxxxxx"), NOT an 0x Ethereum address.
+        // AgentRegistry.sol's registerAgent(address owner, address agentWallet) requires a real EVM address.
+        // Once the creation route stores the owner's linked EVM address on the Agent record, use that here.
+        // For now, this call is intentionally skipped to avoid an ethers.js encoding error.
+        console.warn(`[Registry] Skipping registerAgent: owner EVM address not yet stored for agent ${agentId}. Resolve by storing linked EVM address at creation time.`);
     }
 
     const actionProviders: any[] = [

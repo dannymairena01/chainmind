@@ -1,6 +1,9 @@
 import dotenv from "dotenv";
 
 export function validateEnv() {
+    // Skip validation entirely in test mode — env vars are intentionally absent
+    if (process.env.NODE_ENV === "test") return;
+
     // Only load dotenv if we are not in a production environment where vars are injected
     if (process.env.NODE_ENV !== "production") {
         dotenv.config();

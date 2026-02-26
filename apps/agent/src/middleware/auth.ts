@@ -55,9 +55,10 @@ export const requireAuth = async (
         // Inject the verified claims into the request for downstream routes
         req.user = {
             privyId: verifiedClaims.userId,
-            privyUserId:
-                // We map the Privy DID back to the original EVM wallet if available
-                verifiedClaims.userId?.replace("did:privy:", "") || "",
+            // Strip the "did:privy:" prefix to get a shorter internal Privy user ID.
+            // NOTE: This is NOT an EVM wallet address — it's Privy's own internal ID.
+            // To get the user's linked EVM address, query the linkedAccounts from verifiedClaims.
+            privyUserId: verifiedClaims.userId?.replace("did:privy:", "") || "",
         };
 
         next();

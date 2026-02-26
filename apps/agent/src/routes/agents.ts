@@ -5,7 +5,7 @@ import { ethers } from "ethers";
 import { agentQueue } from "../queue/worker";
 import { requireAuth, AuthenticatedRequest } from "../middleware/auth";
 import { fetchAttestations } from "../lib/eas";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 
 export const agentsRouter: Router = Router();
 const prisma = new PrismaClient();
@@ -65,7 +65,8 @@ const createAgentLimiter = rateLimit({
     message: { error: "Too many agents created. Please try again later." },
     keyGenerator: (req: Request) => {
         const authReq = req as AuthenticatedRequest;
-        return authReq.user?.privyUserId || req.ip || "unknown";
+        // Use the authenticated Privy user ID as the key; fall back to IPv6-safe IP
+        return authReq.user?.privyUserId || ipKeyGenerator(req.ip ?? "");
     }
 });
 
@@ -171,6 +172,7 @@ agentsRouter.delete(
 
             const agent = await prisma.agent.findUnique({ where: { id } });
             if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+            if (agent.ownerId !== ownerId) { res.status(403).json({ error: "Forbidden: You do not own this agent" }); return; }
             await prisma.agent.delete({ where: { id } });
 
             // Remove any pending/active/delayed BullMQ jobs for this agent to prevent DLQ pollution
