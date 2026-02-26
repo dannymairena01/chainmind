@@ -17,7 +17,7 @@ model Agent {
   lastAction    String?
   walletAddress String?
   cdpWalletData    String?  @db.Text
-  pendingTxHash    String?
+  pendingJobId       String?
   pendingRationale String?  @db.Text
   createdAt        DateTime @default(now())
   updatedAt     DateTime @updatedAt

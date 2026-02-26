@@ -229,7 +229,7 @@ agentsRouter.post(
             await agentQueue.add(
                 "run-agent",
                 { agentId: agent.id, ownerId, taskType: agent.taskType },
-                { attempts: 3, backoff: { type: "exponential", delay: 1000 } }
+                { attempts: 3, backoff: { type: "exponential", delay: 5000 } }
             );
 
             res.status(202).json({ message: "Job queued successfully" });

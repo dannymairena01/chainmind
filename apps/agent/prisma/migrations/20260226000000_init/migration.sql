@@ -9,7 +9,7 @@ CREATE TABLE "Agent" (
     "lastAction" TEXT,
     "walletAddress" TEXT,
     "cdpWalletData" TEXT,
-    "pendingTxHash" TEXT,
+    "pendingJobId"     TEXT,
     "pendingRationale" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,

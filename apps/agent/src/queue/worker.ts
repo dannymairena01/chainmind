@@ -274,7 +274,7 @@ export async function startWorker(): Promise<void> {
                     const userMessage = `Please execute your assigned task objective: ${taskType}. Use your tools dynamically to achieve this.\n\nUser Instructions: ${agentRecord.description || "Do your best to accomplish the goal using your available tools."}`;
 
                     // Check idempotency: Did this job ID already finish the stream in a previous failed attempt?
-                    if (agentRecord.pendingTxHash === String(job.id) && agentRecord.pendingRationale) {
+                    if (agentRecord.pendingJobId === String(job.id) && agentRecord.pendingRationale) {
                         console.log(`[Worker] Job ${job.id} already completed LLM stream. Skipping to attestation.`);
                         agentMessages.push(agentRecord.pendingRationale);
                     } else {
@@ -335,7 +335,7 @@ export async function startWorker(): Promise<void> {
                         await prisma.agent.update({
                             where: { id: agentId },
                             data: {
-                                pendingTxHash: String(job.id),
+                                pendingJobId: String(job.id),
                                 pendingRationale: finalMessage
                             }
                         });
@@ -359,7 +359,7 @@ export async function startWorker(): Promise<void> {
                         data: {
                             status: "idle",
                             lastAction: `Finished job ${job.id}`,
-                            pendingTxHash: null,
+                            pendingJobId: null,
                             pendingRationale: null
                         }
                     });
