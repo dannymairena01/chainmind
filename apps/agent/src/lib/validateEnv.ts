@@ -33,10 +33,17 @@ export function validateEnv() {
         process.exit(1);
     }
 
-    // Validate specific formats if necessary
-    if (process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY.length < 32) {
-        console.error("❌ CRITICAL ERROR: ENCRYPTION_KEY must be at least 32 characters long.");
-        process.exit(1);
+    // ENCRYPTION_KEY must be exactly 64 hex characters (= 32 raw bytes for AES-256-GCM).
+    // Generate a valid key with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+    const encKey = process.env.ENCRYPTION_KEY;
+    if (encKey) {
+        if (!/^[0-9a-fA-F]{64}$/.test(encKey)) {
+            console.error(
+                "❌ CRITICAL ERROR: ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes).\n" +
+                "   Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+            );
+            process.exit(1);
+        }
     }
 
     console.log("✅ Environment validation passed.");

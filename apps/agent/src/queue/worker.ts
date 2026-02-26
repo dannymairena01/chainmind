@@ -8,7 +8,7 @@
  */
 
 import dotenv from "dotenv";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../lib/prisma"; // H-1: shared singleton — avoids duplicate connection pools
 
 // LangChain & Coinbase AgentKit
 import { ChatOpenAI } from "@langchain/openai";
@@ -26,8 +26,6 @@ import { writeAttestation, registerAgent } from "../lib/eas";
 import { encryptJSON, decryptJSON } from "../lib/encryption";
 
 dotenv.config({ path: "../../.env" });
-
-const prisma = new PrismaClient();
 
 // ─── Job Payload Types ────────────────────────────────────────────────────────
 
@@ -168,11 +166,21 @@ async function initializeAgent(agentId: string) {
             },
         });
 
-        // TODO: agent.ownerId is a Privy internal ID (e.g. "clxxxxxxxx"), NOT an 0x Ethereum address.
-        // AgentRegistry.sol's registerAgent(address owner, address agentWallet) requires a real EVM address.
-        // Once the creation route stores the owner's linked EVM address on the Agent record, use that here.
-        // For now, this call is intentionally skipped to avoid an ethers.js encoding error.
-        console.warn(`[Registry] Skipping registerAgent: owner EVM address not yet stored for agent ${agentId}. Resolve by storing linked EVM address at creation time.`);
+        // ─── H-5: AgentRegistry integration gap ───────────────────────────────────
+        // AgentRegistry.registerAgent(owner, agentWallet) requires a real EVM address
+        // for `owner`, but agent.ownerId is a Privy internal ID (e.g. "did:privy:xxx")
+        // not an 0x address. ChainMindAttester.attest() will REVERT on-chain because
+        // isRegisteredAgent() returns false for unregistered wallets.
+        //
+        // TODO before mainnet:
+        //   1. At agent creation time, resolve the user's linked EVM wallet address
+        //      from Privy's `linkedAccounts` and store it in Agent.ownerEvmAddress.
+        //   2. Replace the warn below with:
+        //      await registerAgent(agentRecord.ownerEvmAddress, walletAddress);
+        //
+        // Until this is resolved, keep CHAINMIND_ATTESTER_ADDRESS unset so writeAttestation
+        // runs in stub mode and does not revert.
+        console.warn(`[Registry] Skipping registerAgent: ownerEvmAddress not stored yet for agent ${agentId}. See H-5 TODO.`);
     }
 
     const actionProviders: any[] = [

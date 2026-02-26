@@ -1,4 +1,3 @@
-import { EAS, SchemaEncoder } from "@ethereum-attestation-service/eas-sdk";
 import { ethers } from "ethers";
 import dotenv from "dotenv";
 
@@ -30,6 +29,8 @@ export interface AttestationResult {
 export const EAS_GRAPHQL_URL =
     process.env["EAS_GRAPHQL_URL"] ?? "https://base-sepolia.easscan.org/graphql";
 
+/** Default timeout for external EAS GraphQL calls (ms) */
+const EAS_FETCH_TIMEOUT_MS = 5_000;
 
 /**
  * Register a newly provisioned agent wallet in the AgentRegistry.
@@ -118,6 +119,7 @@ export async function writeAttestation(
 
 /**
  * Fetch all attestations for a given agent wallet from the EAS GraphQL API.
+ * Uses a 5-second AbortController timeout to avoid hanging open API connections.
  */
 export async function fetchAttestations(
     agentWallet: string,
@@ -153,14 +155,31 @@ export async function fetchAttestations(
         }
     `;
 
-    const res = await fetch(EAS_GRAPHQL_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            query,
-            variables: { recipient: agentWallet.toLowerCase(), schemaId: schemaUID, take, skip },
-        }),
-    });
+    // H-2: Abort the fetch if the EAS API doesn't respond within the timeout window.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), EAS_FETCH_TIMEOUT_MS);
+
+    let res: Response;
+    try {
+        res = await fetch(EAS_GRAPHQL_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                query,
+                variables: { recipient: agentWallet.toLowerCase(), schemaId: schemaUID, take, skip },
+            }),
+            signal: controller.signal,
+        });
+    } catch (err: any) {
+        if (err.name === "AbortError") {
+            console.warn(`[EAS] GraphQL fetch timed out after ${EAS_FETCH_TIMEOUT_MS}ms`);
+        } else {
+            console.warn("[EAS] GraphQL fetch error:", err.message);
+        }
+        return [];
+    } finally {
+        clearTimeout(timeoutId);
+    }
 
     if (!res.ok) {
         console.warn("[EAS] GraphQL fetch failed:", res.statusText);

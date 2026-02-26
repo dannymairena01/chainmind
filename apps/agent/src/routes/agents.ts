@@ -1,14 +1,13 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { PrismaClient } from "@prisma/client";
 import { z, ZodError } from "zod";
 import { ethers } from "ethers";
 import { agentQueue } from "../queue/worker";
 import { requireAuth, AuthenticatedRequest } from "../middleware/auth";
 import { fetchAttestations } from "../lib/eas";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { prisma } from "../lib/prisma"; // H-1: shared singleton — avoids multiple connection pools
 
 export const agentsRouter: Router = Router();
-const prisma = new PrismaClient();
 
 // ─── Zod Schemas ──────────────────────────────────────────────────────────────
 
@@ -70,6 +69,17 @@ const createAgentLimiter = rateLimit({
     }
 });
 
+// H-4: Rate-limit manual /run triggers — each job may call an LLM and spend on-chain gas
+const runAgentLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1-minute window
+    max: 10,             // 10 manual runs per user per minute
+    message: { error: "Too many run requests. Please slow down." },
+    keyGenerator: (req: Request) => {
+        const authReq = req as AuthenticatedRequest;
+        return authReq.user?.privyUserId || ipKeyGenerator(req.ip ?? "");
+    }
+});
+
 agentsRouter.post(
     "/",
     requireAuth as (req: Request, res: Response, next: NextFunction) => void,
@@ -114,7 +124,7 @@ agentsRouter.get(
         try {
             const { id } = req.params as { id: string };
             const ownerId = req.user?.privyUserId;
-            const take = parseInt((req.query.take as string) || "20", 10);
+            const take = Math.min(parseInt((req.query.take as string) || "20", 10), 100); // M-3: cap at 100
             const skip = parseInt((req.query.skip as string) || "0", 10);
 
             if (!ownerId) { res.status(401).json({ error: "Unauthorized access token" }); return; }
@@ -201,6 +211,7 @@ agentsRouter.delete(
 agentsRouter.post(
     "/:id/run",
     requireAuth as (req: Request, res: Response, next: NextFunction) => void,
+    runAgentLimiter,
     async (req: AuthenticatedRequest, res: Response): Promise<void> => {
         try {
             const { id } = req.params as { id: string };

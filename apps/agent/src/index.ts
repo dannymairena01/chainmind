@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
 import { agentsRouter } from "./routes/agents";
@@ -16,6 +17,10 @@ const app: express.Application = express();
 const PORT = Number(process.env["PORT"] ?? 3001);
 
 // ─── Middleware ────────────────────────────────────────────────────────────────
+// L-6: helmet sets secure HTTP headers (X-Content-Type-Options, X-Frame-Options,
+// Strict-Transport-Security, etc.) — must come before cors and routes.
+app.use(helmet());
+
 const FRONTEND_URL = process.env["NEXT_PUBLIC_FRONTEND_URL"] ?? "http://localhost:3000";
 
 app.use(cors({
