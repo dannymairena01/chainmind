@@ -46,6 +46,7 @@ describe("Agent API Endpoints", () => {
                     ownerId: "0x123",
                     name: "Test Agent",
                     taskType: "MONITOR",
+                    description: undefined,
                 },
             });
 

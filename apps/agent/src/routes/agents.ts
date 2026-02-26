@@ -37,7 +37,7 @@ agentsRouter.get(
     async (req: AuthenticatedRequest, res: Response): Promise<void> => {
         try {
             const ownerId = req.user?.privyUserId;
-            const take = parseInt((req.query.take as string) || "20", 10);
+            const take = Math.min(parseInt((req.query.take as string) || "20", 10), 100);
             const skip = parseInt((req.query.skip as string) || "0", 10);
 
             if (!ownerId) { res.status(401).json({ error: "Unauthorized access token" }); return; }

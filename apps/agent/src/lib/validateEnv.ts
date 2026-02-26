@@ -13,12 +13,15 @@ export function validateEnv() {
         "DATABASE_URL",
         "ENCRYPTION_KEY",
         "PRIVATE_KEY",
-        "CDP_API_KEY_NAME",
-        "CDP_API_KEY_PRIVATE_KEY",
+        // CDP uses CDP_API_KEY_ID / CDP_API_KEY_SECRET (aligned with worker.ts)
+        "CDP_API_KEY_ID",
+        "CDP_API_KEY_SECRET",
         "OPENAI_API_KEY",
         "NEXT_PUBLIC_PRIVY_APP_ID",
         "PRIVY_APP_SECRET",
-        "REDIS_URL"
+        "REDIS_URL",
+        // CORS origin — must be set so the frontend isn't silently blocked in prod
+        "NEXT_PUBLIC_FRONTEND_URL",
     ];
 
     const missingVars = requiredVars.filter(envVar => !process.env[envVar]);

@@ -1,17 +1,10 @@
 import { Request, Response, NextFunction } from "express";
 import { PrivyClient } from "@privy-io/server-auth";
 
-const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
-const PRIVY_APP_SECRET = process.env.PRIVY_APP_SECRET;
+const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID!;
+const PRIVY_APP_SECRET = process.env.PRIVY_APP_SECRET!;
 
-if (!PRIVY_APP_ID || !PRIVY_APP_SECRET) {
-    console.warn("⚠️ Missing Privy App ID or Secret. Authentication disabled.");
-}
-
-const privy = new PrivyClient(
-    PRIVY_APP_ID || "mock-app-id",
-    PRIVY_APP_SECRET || "mock-app-secret"
-);
+const privy = new PrivyClient(PRIVY_APP_ID, PRIVY_APP_SECRET);
 
 // Extend Express Request object to include the verified user
 export interface AuthenticatedRequest extends Request {

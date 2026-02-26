@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -43,6 +44,8 @@ async function fetchUserAgents(
 export default function DashboardPage() {
     const { user, authenticated, login, getAccessToken } = usePrivy();
     const queryClient = useQueryClient();
+    // Track which agent IDs have a delete in-flight so we only disable THAT button
+    const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
     const { data: agents = [], isLoading } = useQuery({
         queryKey: ["agents", user?.wallet?.address],
@@ -53,6 +56,7 @@ export default function DashboardPage() {
 
     const deleteAgentMutation = useMutation({
         mutationFn: async (agentId: string) => {
+            setDeletingIds((prev) => new Set(prev).add(agentId));
             const token = await getAccessToken();
             const res = await fetch(`${AGENT_API}/agents/${agentId}`, {
                 method: "DELETE",
@@ -61,9 +65,13 @@ export default function DashboardPage() {
                 },
             });
             if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(errText || "Failed to delete agent");
+                // Backend returns JSON: { error: "..." }
+                const body = await res.json().catch(() => ({ error: "Failed to delete agent" })) as { error?: string };
+                throw new Error(body.error ?? "Failed to delete agent");
             }
+        },
+        onSettled: (_data, _err, agentId) => {
+            setDeletingIds((prev) => { const next = new Set(prev); next.delete(agentId); return next; });
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["agents", user?.wallet?.address] });
@@ -148,7 +156,7 @@ export default function DashboardPage() {
                                                 deleteAgentMutation.mutate(agent.id);
                                             }
                                         }}
-                                        disabled={deleteAgentMutation.isPending}
+                                        disabled={deletingIds.has(agent.id)}
                                         className="text-gray-500 hover:text-red-400 p-1.5 rounded-md hover:bg-red-500/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
                                         title="Delete Agent"
                                     >

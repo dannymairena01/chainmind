@@ -134,9 +134,8 @@ async function initializeAgent(agentId: string) {
     const apiKeySecret = process.env["CDP_API_KEY_SECRET"] ?? "";
     const walletSecret = process.env["CDP_WALLET_SECRET"] || undefined;
 
-    console.log(`[CDP] Using apiKeyId: ${apiKeyId}`);
-    console.log(`[CDP] apiKeySecret present: ${Boolean(apiKeySecret)}`);
-    console.log(`[CDP] walletSecret present: ${Boolean(walletSecret)}`);
+    console.log(`[CDP] Initializing wallet for agent ${agentId}`);
+    console.log(`[CDP] apiKeyId present: ${Boolean(apiKeyId)}, apiKeySecret present: ${Boolean(apiKeySecret)}`);
 
     // Instantiate or re-use the CDP EVM Wallet (new API v2)
     let walletProvider;
@@ -271,10 +270,20 @@ export async function startWorker(): Promise<void> {
                         console.log(`[Worker] Job ${job.id} already completed LLM stream. Skipping to attestation.`);
                         agentMessages.push(agentRecord.pendingRationale);
                     } else {
-                        const stream = await reactAgent.stream(
-                            { messages: [{ role: "user", content: userMessage }] },
-                            runConfig
+                        // Stream timeout: if the LLM hangs for > 3 minutes, abort the job
+                        // to free the worker slot rather than blocking indefinitely.
+                        const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
+                        const streamTimeout = new Promise<never>((_, reject) =>
+                            setTimeout(() => reject(new Error("LangGraph stream timed out after 3 minutes")), STREAM_TIMEOUT_MS)
                         );
+
+                        const stream = await Promise.race([
+                            reactAgent.stream(
+                                { messages: [{ role: "user", content: userMessage }] },
+                                runConfig
+                            ),
+                            streamTimeout,
+                        ]);
 
                         for await (const chunk of stream) {
                             if (chunk.agent?.messages && chunk.agent.messages.length > 0) {

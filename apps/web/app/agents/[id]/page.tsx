@@ -213,9 +213,10 @@ export default function AgentDetailPage() {
                     </p>
                 ) : (
                     <div className="space-y-3">
-                        {agent.recentActivity.map((activity, i) => (
+                        {agent.recentActivity.map((activity) => (
                             <div
-                                key={i}
+                                key={activity.uid}
+
                                 className="rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3"
                             >
                                 <div className="flex items-start justify-between gap-4">

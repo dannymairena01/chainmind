@@ -24,12 +24,16 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Global rate limiter — applied ONLY to mutating routes (POST/PUT/DELETE/PATCH)
+// GET routes (including /health and GET /agents) are intentionally exempt to
+// avoid rate-limiting users who have the dashboard + agent detail page polling simultaneously.
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes)
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
     message: { error: "Too many requests, please try again later." },
+    skip: (req) => req.method === "GET" || req.method === "HEAD",
 });
 
 app.use(apiLimiter);
@@ -40,7 +44,7 @@ app.use("/agents", agentsRouter);
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 if (process.env.NODE_ENV !== "test") {
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
         console.log(`[ChainMind Agent Runtime] listening on http://localhost:${PORT}`);
         // Start BullMQ worker AFTER HTTP server is up, so Redis errors
         // don't prevent the server from starting in stub mode.
@@ -50,6 +54,28 @@ if (process.env.NODE_ENV !== "test") {
             console.warn("[Worker] Could not start BullMQ worker (Redis unavailable):", err);
         }
     });
+
+    // ─── Graceful Shutdown ────────────────────────────────────────────────────
+    // On SIGTERM/SIGINT (issued during deploys or container restarts), stop
+    // accepting new requests and give in-flight jobs time to complete before exit.
+    const shutdown = (signal: string) => {
+        console.log(`[Server] ${signal} received. Shutting down gracefully…`);
+        server.close(() => {
+            console.log("[Server] HTTP server closed.");
+            // Prisma and BullMQ worker have their own teardown handled by the OS
+            // closing the process. In a future iteration, call worker.close() here.
+            process.exit(0);
+        });
+
+        // Force-exit after 10s if something hangs
+        setTimeout(() => {
+            console.error("[Server] Forced exit after timeout.");
+            process.exit(1);
+        }, 10_000).unref();
+    };
+
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 export default app;

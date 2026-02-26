@@ -26,8 +26,10 @@ export interface AttestationResult {
     uid: string;
 }
 
-/** EAS GraphQL API base for Base Sepolia */
-export const EAS_GRAPHQL_URL = "https://base-sepolia.easscan.org/graphql";
+/** EAS GraphQL API base — defaults to Base Sepolia testnet. Override with EAS_GRAPHQL_URL env var for mainnet. */
+export const EAS_GRAPHQL_URL =
+    process.env["EAS_GRAPHQL_URL"] ?? "https://base-sepolia.easscan.org/graphql";
+
 
 /**
  * Register a newly provisioned agent wallet in the AgentRegistry.
