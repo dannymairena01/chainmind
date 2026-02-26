@@ -55,7 +55,12 @@ export default function NewAgentPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!user?.wallet?.address) return;
+
+        // Issue 8: Show a user-facing error instead of silently doing nothing
+        if (!user?.wallet?.address) {
+            setError("No wallet connected. Please connect your wallet to create an agent.");
+            return;
+        }
 
         // Client-side Zod validation before hitting the API
         const parsed = CreateAgentSchema.safeParse(form);

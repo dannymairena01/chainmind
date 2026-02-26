@@ -71,8 +71,11 @@ contract ChainMindAttester is Ownable {
     // ─── External Functions ────────────────────────────────────────────────────
 
     /// @notice Submit an on-chain attestation for an agent action.
-    ///         The caller must be a registered agent wallet in AgentRegistry.
-    /// @param agentWallet  The agent's on-chain wallet address (must be registered)
+    ///         The `agentWallet` parameter must be a registered agent wallet
+    ///         in the AgentRegistry. Note: registration is checked by address
+    ///         value — the caller (msg.sender) is the backend signer, not the
+    ///         agent wallet itself.
+    /// @param agentWallet  The agent's on-chain wallet address (must be registered in AgentRegistry)
     /// @param actionType   Short string labelling the action (e.g. "SWAP", "MONITOR")
     /// @param rationale    Human-readable reason the agent took this action
     /// @param txHash       Hash of the triggering or resulting on-chain transaction

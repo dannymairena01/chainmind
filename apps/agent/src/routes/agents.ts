@@ -9,6 +9,12 @@ import { prisma } from "../lib/prisma"; // H-1: shared singleton — avoids mult
 
 export const agentsRouter: Router = Router();
 
+// Issue 4: Module-level provider singleton — avoids creating a new HTTP connection
+// on every GET /agents/:id request (which is polled every ~5s by the frontend).
+const rpcProvider = new ethers.JsonRpcProvider(
+    process.env["BASE_SEPOLIA_RPC_URL"] ?? "https://sepolia.base.org"
+);
+
 // ─── Zod Schemas ──────────────────────────────────────────────────────────────
 
 const CreateAgentSchema = z.object({
@@ -101,7 +107,7 @@ agentsRouter.post(
             await agentQueue.add(
                 "run-agent",
                 { agentId: newAgent.id, ownerId, taskType },
-                { attempts: 3, backoff: { type: "exponential", delay: 1000 } }
+                { attempts: 3, backoff: { type: "exponential", delay: 5000 } }
             );
 
             res.status(201).json({
@@ -138,14 +144,11 @@ agentsRouter.get(
                 ? await fetchAttestations(agent.walletAddress, take, skip)
                 : [];
 
-            // Fetch real ETH balance from Alchemy RPC
+            // Fetch real ETH balance from Base Sepolia RPC (uses module-level singleton)
             let balance = "0";
             if (agent.walletAddress) {
                 try {
-                    const provider = new ethers.JsonRpcProvider(
-                        process.env["BASE_SEPOLIA_RPC_URL"] ?? "https://sepolia.base.org"
-                    );
-                    const rawBalance = await provider.getBalance(agent.walletAddress);
+                    const rawBalance = await rpcProvider.getBalance(agent.walletAddress);
                     balance = parseFloat(ethers.formatEther(rawBalance)).toFixed(4);
                 } catch {
                     // Non-fatal: balance stays "0" if RPC unavailable

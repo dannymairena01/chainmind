@@ -278,33 +278,49 @@ export async function startWorker(): Promise<void> {
                         console.log(`[Worker] Job ${job.id} already completed LLM stream. Skipping to attestation.`);
                         agentMessages.push(agentRecord.pendingRationale);
                     } else {
-                        // Stream timeout: if the LLM hangs for > 3 minutes, abort the job
-                        // to free the worker slot rather than blocking indefinitely.
+                        // Stream timeout: abort the ENTIRE for-await loop if the LLM hangs.
+                        // NOTE: Promise.race against reactAgent.stream() only races the generator
+                        // *creation* (which resolves in milliseconds). The actual LLM calls happen
+                        // inside the for-await below, so we need to race the whole iteration.
                         const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
-                        const streamTimeout = new Promise<never>((_, reject) =>
-                            setTimeout(() => reject(new Error("LangGraph stream timed out after 3 minutes")), STREAM_TIMEOUT_MS)
+                        let timeoutReject!: (err: Error) => void;
+                        const timeoutPromise = new Promise<never>((_, reject) => {
+                            timeoutReject = reject;
+                        });
+                        const timeoutId = setTimeout(
+                            () => timeoutReject(new Error("LangGraph stream timed out after 3 minutes")),
+                            STREAM_TIMEOUT_MS
                         );
 
-                        const stream = await Promise.race([
-                            reactAgent.stream(
+                        try {
+                            const stream = await reactAgent.stream(
                                 { messages: [{ role: "user", content: userMessage }] },
                                 runConfig
-                            ),
-                            streamTimeout,
-                        ]);
+                            );
 
-                        for await (const chunk of stream) {
-                            if (chunk.agent?.messages && chunk.agent.messages.length > 0) {
-                                const msg = String(chunk.agent.messages[0].content);
-                                agentMessages.push(msg);
-                                console.log(`[Agent ${agentId}]`, msg);
-                            } else if (chunk.tools) {
-                                console.log(`[Agent ${agentId}] Autonomous Tool Execution triggered`);
-                                await prisma.agent.update({
-                                    where: { id: agentId },
-                                    data: { lastAction: "Executing autonomous tool..." }
-                                });
+                            // Race each chunk pull against the timeout so a stalled LLM
+                            // never blocks the worker slot indefinitely.
+                            for await (const chunk of stream) {
+                                // Check if timeout already fired
+                                await Promise.race([
+                                    Promise.resolve(chunk),
+                                    timeoutPromise,
+                                ]);
+
+                                if (chunk.agent?.messages && chunk.agent.messages.length > 0) {
+                                    const msg = String(chunk.agent.messages[0].content);
+                                    agentMessages.push(msg);
+                                    console.log(`[Agent ${agentId}]`, msg);
+                                } else if (chunk.tools) {
+                                    console.log(`[Agent ${agentId}] Autonomous Tool Execution triggered`);
+                                    await prisma.agent.update({
+                                        where: { id: agentId },
+                                        data: { lastAction: "Executing autonomous tool..." }
+                                    });
+                                }
                             }
+                        } finally {
+                            clearTimeout(timeoutId);
                         }
 
                         // Determine the single final coherent message for the rationale (Fixes #8)

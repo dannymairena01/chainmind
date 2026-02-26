@@ -1,0 +1,4 @@
+# Please do not change this file manually
+# It is maintained by Prisma CLI.
+
+provider = "postgresql"
