@@ -45,7 +45,7 @@ export async function getRecentTransactions(address: string) {
     const alchemy = getAlchemyClient();
     const result = await alchemy.core.getAssetTransfers({
         fromAddress: address,
-        category: ["external", "internal", "erc20"],
+        category: ["external", "internal", "erc20"] as any[],
         maxCount: 10,
         withMetadata: true,
     });

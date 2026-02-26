@@ -22,7 +22,8 @@ import {
     erc20ActionProvider,
     cdpApiActionProvider,
 } from "@coinbase/agentkit";
-import { writeAttestation } from "../lib/eas";
+import { writeAttestation, registerAgent } from "../lib/eas";
+import { encryptJSON, decryptJSON } from "../lib/encryption";
 
 dotenv.config({ path: "../../.env" });
 
@@ -57,7 +58,7 @@ export const agentQueue: QueueLike = {
             if (!sharedQueueConn) {
                 sharedQueueConn = new IORedis(REDIS_URL, { maxRetriesPerRequest: null });
                 agentQueueInstance = new Queue("agent-tasks", {
-                    connection: sharedQueueConn,
+                    connection: sharedQueueConn as any,
                     defaultJobOptions: {
                         removeOnComplete: 100,
                         removeOnFail: 50,
@@ -95,9 +96,20 @@ async function initializeAgent(agentId: string) {
     let savedAddress: string | undefined;
     if (walletDataStr) {
         try {
-            const parsed = JSON.parse(walletDataStr) as { address?: string };
+            // Attempt to decrypt the wallet data from the DB
+            let rawJson = walletDataStr;
+            // A simple heuristic: if it contains our "iv:authTag:cipher" colon format, decrypt
+            if (walletDataStr.split(":").length === 3) {
+                rawJson = decryptJSON(walletDataStr);
+                // Also overwrite walletDataStr so the CdpEvmWalletProvider gets the decrypted object
+                walletDataStr = rawJson;
+            }
+
+            const parsed = JSON.parse(rawJson) as { address?: string };
             savedAddress = parsed.address;
-        } catch { /* ignore */ }
+        } catch (err: any) {
+            console.error(`[Worker] Failed to parse/decrypt stored wallet material for agent ${agentId}:`, err.message);
+        }
     }
 
     const apiKeyId = process.env["CDP_API_KEY_ID"] ?? "";
@@ -124,16 +136,25 @@ async function initializeAgent(agentId: string) {
     }
 
     // Save the created wallet address back to the DB (first run only)
-    if (!walletDataStr) {
+    if (!agent.cdpWalletData) {
         const walletAddress = walletProvider.getAddress();
         const exported = await walletProvider.exportWallet();
+
+        // Encrypt the sensitive key material before saving to DB
+        const encryptedWalletData = encryptJSON(JSON.stringify(exported));
+
         await prisma.agent.update({
             where: { id: agentId },
             data: {
-                cdpWalletData: JSON.stringify(exported),
+                cdpWalletData: encryptedWalletData,
                 walletAddress,
             },
         });
+
+        // Register the new agent wallet under its owner inside our AgentRegistry contract
+        await registerAgent(agent.ownerId, walletAddress).catch((err) =>
+            console.warn(`[Registry] Failed to register agent (non-fatal): ${err.message}`)
+        );
     }
 
     const actionProviders: any[] = [
@@ -273,7 +294,7 @@ export async function startWorker(): Promise<void> {
                     throw err; // Trigger BullMQ fail/retry
                 }
             },
-            { connection: conn, concurrency: 5 }
+            { connection: conn as any, concurrency: 5 }
         );
 
         worker.on("completed", (job) => console.log(`[Worker] ${job.id} finished`));

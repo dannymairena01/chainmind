@@ -7,10 +7,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 
 interface AgentActivity {
-    timestamp: string;
-    action: string;
-    attestationUID: string | null;
+    uid: string;
+    actionType: string;
+    rationale: string;
     txHash: string | null;
+    timestamp: string;
 }
 
 interface AgentDetail {
@@ -195,7 +196,7 @@ export default function AgentDetailPage() {
                     <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                         <p className="text-gray-500 mb-1 text-xs uppercase tracking-wider">Attestations</p>
                         <p className="text-xl font-semibold text-white">
-                            {agent.recentActivity.filter((a) => a.attestationUID).length}
+                            {agent.recentActivity.filter((a) => a.uid).length}
                         </p>
                     </div>
                 </div>
@@ -220,21 +221,21 @@ export default function AgentDetailPage() {
                                 <div className="flex items-start justify-between gap-4">
                                     <div className="flex-1 min-w-0">
                                         <span className="text-sm font-semibold text-white">
-                                            {activity.action}
+                                            {activity.actionType}
                                         </span>
-                                        {(activity as { rationale?: string }).rationale && (
+                                        {activity.rationale && (
                                             <p className="text-xs text-gray-500 truncate mt-0.5">
-                                                {(activity as { rationale?: string }).rationale}
+                                                {activity.rationale}
                                             </p>
                                         )}
-                                        {activity.attestationUID && (
+                                        {activity.uid && (
                                             <a
-                                                href={`https://base-sepolia.easscan.org/attestation/view/${activity.attestationUID}`}
+                                                href={`https://base-sepolia.easscan.org/attestation/view/${activity.uid}`}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                                 className="text-xs text-indigo-400 font-mono mt-1 hover:text-indigo-300 transition inline-flex items-center gap-1"
                                             >
-                                                EAS: {activity.attestationUID.slice(0, 18)}…
+                                                EAS: {activity.uid.slice(0, 18)}…
                                                 <span className="text-[10px] opacity-60">↗</span>
                                             </a>
                                         )}

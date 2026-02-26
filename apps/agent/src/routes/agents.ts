@@ -35,7 +35,7 @@ agentsRouter.get(
     requireAuth as (req: Request, res: Response, next: NextFunction) => void,
     async (req: AuthenticatedRequest, res: Response): Promise<void> => {
         try {
-            const ownerId = req.user?.walletAddress;
+            const ownerId = req.user?.privyUserId;
             const take = parseInt((req.query.take as string) || "20", 10);
             const skip = parseInt((req.query.skip as string) || "0", 10);
 
@@ -63,7 +63,7 @@ agentsRouter.post(
     requireAuth as (req: Request, res: Response, next: NextFunction) => void,
     async (req: AuthenticatedRequest, res: Response): Promise<void> => {
         try {
-            const ownerId = req.user?.walletAddress;
+            const ownerId = req.user?.privyUserId;
             if (!ownerId) { res.status(401).json({ error: "Unauthorized access token" }); return; }
 
             const parsed = CreateAgentSchema.safeParse(req.body);
@@ -100,7 +100,7 @@ agentsRouter.get(
     async (req: AuthenticatedRequest, res: Response): Promise<void> => {
         try {
             const { id } = req.params as { id: string };
-            const ownerId = req.user?.walletAddress;
+            const ownerId = req.user?.privyUserId;
             const take = parseInt((req.query.take as string) || "20", 10);
             const skip = parseInt((req.query.skip as string) || "0", 10);
 
@@ -154,7 +154,7 @@ agentsRouter.delete(
     async (req: AuthenticatedRequest, res: Response): Promise<void> => {
         try {
             const { id } = req.params as { id: string };
-            const ownerId = req.user?.walletAddress;
+            const ownerId = req.user?.privyUserId;
             if (!ownerId) { res.status(401).json({ error: "Unauthorized access token" }); return; }
 
             const agent = await prisma.agent.findUnique({ where: { id } });
@@ -178,7 +178,7 @@ agentsRouter.post(
     async (req: AuthenticatedRequest, res: Response): Promise<void> => {
         try {
             const { id } = req.params as { id: string };
-            const ownerId = req.user?.walletAddress;
+            const ownerId = req.user?.privyUserId;
             if (!ownerId) { res.status(401).json({ error: "Unauthorized access token" }); return; }
 
             const agent = await prisma.agent.findUnique({ where: { id } });

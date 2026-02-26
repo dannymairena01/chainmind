@@ -8,10 +8,11 @@ dotenv.config({ path: "../../.env" });
  * EAS attestation module.
  *
  * Writes on-chain attestations to Base Sepolia recording each autonomous
- * agent action. Uses the deployer private key to sign the transaction.
+ * agent action. Uses the deployer private key to sign the transaction,
+ * routing through ChainMindAttester.
  *
  * Required env vars:
- *   EAS_CONTRACT_ADDRESS, SCHEMA_UID, BASE_SEPOLIA_RPC_URL, PRIVATE_KEY
+ *   CHAINMIND_ATTESTER_ADDRESS, AGENT_REGISTRY_ADDRESS, BASE_SEPOLIA_RPC_URL, PRIVATE_KEY
  */
 
 export interface AttestationParams {
@@ -29,7 +30,41 @@ export interface AttestationResult {
 export const EAS_GRAPHQL_URL = "https://base-sepolia.easscan.org/graphql";
 
 /**
- * Write an on-chain attestation recording an agent action.
+ * Register a newly provisioned agent wallet in the AgentRegistry.
+ */
+export async function registerAgent(owner: string, agentWallet: string): Promise<void> {
+    const registryAddress = process.env["AGENT_REGISTRY_ADDRESS"];
+    const rpcUrl = process.env["BASE_SEPOLIA_RPC_URL"];
+    const privateKey = process.env["PRIVATE_KEY"];
+
+    if (!registryAddress || !rpcUrl || !privateKey) {
+        console.warn(`[Registry] Stub mode — missing env vars. Would register agent: ${agentWallet}`);
+        return;
+    }
+
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const signer = new ethers.Wallet(privateKey, provider);
+
+    const abi = ["function registerAgent(address owner, address agentWallet) external"];
+    const registry = new ethers.Contract(registryAddress, abi, signer) as any;
+
+    try {
+        console.log(`[Registry] Registering agent ${agentWallet} for owner ${owner}...`);
+        const tx = await registry.registerAgent(owner, agentWallet);
+        await tx.wait();
+        console.log(`[Registry] Agent ${agentWallet} registered successfully.`);
+    } catch (err: any) {
+        if (err.message?.includes("already registered")) {
+            console.log(`[Registry] Agent ${agentWallet} is already registered.`);
+        } else {
+            console.error(`[Registry] Failed to register agent: ${err.message}`);
+            throw err;
+        }
+    }
+}
+
+/**
+ * Write an on-chain attestation recording an agent action via ChainMindAttester.
  * Falls back to stub mode if env vars are not configured.
  */
 export async function writeAttestation(
@@ -37,12 +72,11 @@ export async function writeAttestation(
 ): Promise<AttestationResult> {
     const { agentWallet, actionType, rationale, txHash } = params;
 
-    const easAddress = process.env["EAS_CONTRACT_ADDRESS"];
-    const schemaUID = process.env["SCHEMA_UID"];
+    const attesterAddress = process.env["CHAINMIND_ATTESTER_ADDRESS"];
     const rpcUrl = process.env["BASE_SEPOLIA_RPC_URL"];
     const privateKey = process.env["PRIVATE_KEY"];
 
-    if (!easAddress || !schemaUID || !rpcUrl || !privateKey) {
+    if (!attesterAddress || !rpcUrl || !privateKey) {
         console.warn(
             `[EAS] Stub mode — missing env vars. Would attest: action=${actionType} agent=${agentWallet}`
         );
@@ -51,34 +85,31 @@ export async function writeAttestation(
 
     const provider = new ethers.JsonRpcProvider(rpcUrl);
     const signer = new ethers.Wallet(privateKey, provider);
-    const eas = new EAS(easAddress);
-    eas.connect(signer);
+
+    const abi = [
+        "function attest(address agentWallet, string calldata actionType, string calldata rationale, bytes32 txHash) external returns (bytes32 uid)"
+    ];
+    const attester = new ethers.Contract(attesterAddress, abi, signer) as any;
 
     // Pad txHash to a valid bytes32 (32 bytes / 64 hex chars)
     const rawHash = txHash && txHash.startsWith("0x") ? txHash : `0x${txHash ?? ""}`;
     const paddedHash = ethers.zeroPadValue(rawHash.slice(0, 66), 32) as `0x${string}`;
 
-    const schemaEncoder = new SchemaEncoder(
-        "address agentWallet,string actionType,string rationale,bytes32 txHash"
-    );
-    const encodedData = schemaEncoder.encodeData([
-        { name: "agentWallet", value: agentWallet, type: "address" },
-        { name: "actionType", value: actionType, type: "string" },
-        { name: "rationale", value: rationale, type: "string" },
-        { name: "txHash", value: paddedHash, type: "bytes32" },
-    ]);
+    const tx = await attester.attest(agentWallet, actionType, rationale, paddedHash);
+    const receipt = await tx.wait();
 
-    const tx = await eas.attest({
-        schema: schemaUID,
-        data: {
-            recipient: agentWallet,
-            expirationTime: BigInt(0),
-            revocable: true,
-            data: encodedData,
-        },
-    });
+    // Find the ActionAttested event to extract the UID
+    let newAttestationUID = `unknown_uid_${Date.now()}`;
+    for (const log of receipt.logs) {
+        try {
+            // ActionAttested signature hash: keccak256("ActionAttested(address,bytes32,string)")
+            if (log.topics[0] === ethers.id("ActionAttested(address,bytes32,string)")) {
+                newAttestationUID = log.topics[2]; // uid is the second indexed parameter
+                break;
+            }
+        } catch { /* ignore */ }
+    }
 
-    const newAttestationUID = await tx.wait();
     console.log(`[EAS] Attestation written: uid=${newAttestationUID} action=${actionType}`);
     return { uid: newAttestationUID };
 }

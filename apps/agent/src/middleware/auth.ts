@@ -16,7 +16,7 @@ const privy = new PrivyClient(
 // Extend Express Request object to include the verified user
 export interface AuthenticatedRequest extends Request {
     user?: {
-        walletAddress: string;
+        privyUserId: string;
         privyId: string;
     };
 }
@@ -34,7 +34,7 @@ export const requireAuth = async (
         }
 
         req.user = {
-            walletAddress: "0x123",
+            privyUserId: "0x123",
             privyId: "did:privy:123",
         };
         next();
@@ -55,7 +55,7 @@ export const requireAuth = async (
         // Inject the verified claims into the request for downstream routes
         req.user = {
             privyId: verifiedClaims.userId,
-            walletAddress:
+            privyUserId:
                 // We map the Privy DID back to the original EVM wallet if available
                 verifiedClaims.userId?.replace("did:privy:", "") || "",
         };
