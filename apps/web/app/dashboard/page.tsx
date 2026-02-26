@@ -72,14 +72,11 @@ export default function DashboardPage() {
 
     if (!authenticated) {
         return (
-            <main className="flex min-h-screen flex-col items-center justify-center">
-                <p className="text-gray-400 mb-4">Connect your wallet to view your agents.</p>
-                <button
-                    onClick={login}
-                    className="rounded-lg bg-indigo-600 px-6 py-3 font-semibold text-white hover:bg-indigo-500 transition"
-                >
-                    Connect Wallet
-                </button>
+            <main className="flex min-h-[70vh] flex-col items-center justify-center gap-4">
+                <div className="text-center">
+                    <p className="text-gray-400 mb-2">Connect your wallet to see your agents.</p>
+                    <p className="text-gray-600 text-sm">Use the <strong className="text-gray-400">Connect Wallet</strong> button in the top-right.</p>
+                </div>
             </main>
         );
     }

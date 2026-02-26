@@ -13,7 +13,6 @@ import { PrismaClient } from "@prisma/client";
 // LangChain & Coinbase AgentKit
 import { ChatOpenAI } from "@langchain/openai";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
-import { MemorySaver } from "@langchain/langgraph";
 import { getLangChainTools } from "@coinbase/agentkit-langchain";
 import {
     AgentKit,
@@ -45,19 +44,32 @@ type QueueLike = {
     add(name: string, data: AgentJobData, opts?: object): Promise<unknown>;
 };
 
+let sharedQueueConn: any = null;
+let agentQueueInstance: any = null;
+
 export const agentQueue: QueueLike = {
     async add(name, data, opts) {
         const REDIS_URL = process.env["REDIS_URL"] ?? "redis://localhost:6379";
         try {
             const { Queue } = await import("bullmq");
             const IORedis = (await import("ioredis")).default;
-            const conn = new IORedis(REDIS_URL, { maxRetriesPerRequest: null });
-            const q = new Queue("agent-tasks", {
-                connection: conn,
-                defaultJobOptions: { removeOnComplete: 100, removeOnFail: 50 },
-            });
-            const job = await q.add(name, data, opts);
-            await conn.quit();
+
+            if (!sharedQueueConn) {
+                sharedQueueConn = new IORedis(REDIS_URL, { maxRetriesPerRequest: null });
+                agentQueueInstance = new Queue("agent-tasks", {
+                    connection: sharedQueueConn,
+                    defaultJobOptions: {
+                        removeOnComplete: 100,
+                        removeOnFail: 50,
+                        attempts: 3,
+                        backoff: { type: "exponential", delay: 5000 }
+                    },
+                });
+            }
+
+            // Allow caller opts to override defaults if needed
+            const jobOpts = { ...opts };
+            const job = await agentQueueInstance.add(name, data, jobOpts);
             return job;
         } catch (err) {
             console.warn("[Queue] Redis unavailable — job enqueue skipped (stub mode):", (err as Error).message);
@@ -124,32 +136,43 @@ async function initializeAgent(agentId: string) {
         });
     }
 
+    const actionProviders: any[] = [
+        walletActionProvider(),
+        cdpApiActionProvider(),
+    ];
+
+    // Only allow token/swap tools if the task type requires it. 
+    // This prevents a "MONITOR" agent from accidentally/maliciously spending funds
+    if (agent.taskType !== "MONITOR") {
+        actionProviders.push(
+            wethActionProvider(),
+            erc20ActionProvider()
+        );
+    }
+
     const agentkit = await AgentKit.from({
         walletProvider,
-        actionProviders: [
-            wethActionProvider(),
-            walletActionProvider(),
-            erc20ActionProvider(),
-            cdpApiActionProvider(),
-        ],
+        actionProviders,
     });
 
     const tools = await getLangChainTools(agentkit);
-    const memory = new MemorySaver();
-    const config = { configurable: { thread_id: agentId } };
 
-    // Set the behavioral instructions of the agent based on user configuration
+    // Hardcoded system modifier — user instructions are kept strictly separated 
+    // to prevent prompt injection overriding core constraints.
     const messageModifier = `You are a helpful Web3 autonomous agent named '${agent.name}' operating on Base Sepolia. Your core objective is: ${agent.taskType}. 
-User Instructions: ${agent.description || "Do your best to accomplish the goal using your available tools."}`;
+IMPORTANT: Your task instructions will be provided in the next user message. You must execute them safely and intelligently within your tool constraints.`;
 
+    // NOTE: We intentionally do NOT pass a checkpointSaver here.
+    // Using a shared MemorySaver with the same thread_id across job runs causes
+    // the OpenAI "Missing tool_call_id" 400 error because stale tool messages
+    // from previous runs get replayed in the next request.
     const reactAgent = createReactAgent({
         llm,
         tools,
-        checkpointSaver: memory,
         messageModifier,
     });
 
-    return { reactAgent, config, agent };
+    return { reactAgent, agent };
 }
 
 // ─── Worker ───────────────────────────────────────────────────────────────────
@@ -188,13 +211,24 @@ export async function startWorker(): Promise<void> {
                 });
 
                 try {
-                    const { reactAgent, config, agent: agentRecord } = await initializeAgent(agentId);
+                    const { reactAgent, agent: agentRecord } = await initializeAgent(agentId);
+
+                    // Use a unique thread_id per job to avoid replaying stale tool messages.
+                    // Set recursionLimit: 5 as a circuit breaker so hallucinating agents 
+                    // don't burn unbounded OpenAI tokens or gas.
+                    const runConfig = {
+                        configurable: { thread_id: `${agentId}-${job.id}` },
+                        recursionLimit: 5
+                    };
 
                     const agentMessages: string[] = [];
 
+                    // The raw user prompt is passed as a HumanMessage *after* the system prompt, mitigating prompt injection
+                    const userMessage = `Please execute your assigned task objective: ${taskType}. Use your tools dynamically to achieve this.\n\nUser Instructions: ${agentRecord.description || "Do your best to accomplish the goal using your available tools."}`;
+
                     const stream = await reactAgent.stream(
-                        { messages: [{ role: "user", content: `Please execute your assigned task objective: ${taskType}. Use your tools dynamically to achieve this.` }] },
-                        config
+                        { messages: [{ role: "user", content: userMessage }] },
+                        runConfig
                     );
 
                     for await (const chunk of stream) {
@@ -243,9 +277,16 @@ export async function startWorker(): Promise<void> {
         );
 
         worker.on("completed", (job) => console.log(`[Worker] ${job.id} finished`));
-        worker.on("failed", (job, err) =>
-            console.error(`[Worker] ${job?.id} failed:`, err.message)
-        );
+        worker.on("failed", (job, err) => {
+            console.error(`[Worker] ${job?.id} failed:`, err.message);
+
+            // Check if this was the last attempt (DLQ logic)
+            if (job && job.attemptsMade >= (job.opts.attempts || 1)) {
+                console.error(`[Worker/DLQ] Job ${job.id} (Agent ${job.data?.agentId}) exhausted all retries and is now dead.`);
+                // In a production system, you'd write this to a 'DeadLetter' table here 
+                // or send a Slack/PagerDuty alert.
+            }
+        });
 
         _workerStarted = true;
         console.log("[Worker] BullMQ worker started");
