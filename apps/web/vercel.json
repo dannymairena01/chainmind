@@ -1,5 +1,0 @@
-{
-    "installCommand": "cd ../.. && pnpm install",
-    "buildCommand": "cd ../.. && pnpm --filter @chainmind/web build",
-    "outputDirectory": ".next"
-}

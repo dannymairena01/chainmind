@@ -1,0 +1,6 @@
+{
+    "buildCommand": "pnpm --filter @chainmind/web build",
+    "installCommand": "pnpm install",
+    "outputDirectory": "apps/web/.next",
+    "framework": "nextjs"
+}
