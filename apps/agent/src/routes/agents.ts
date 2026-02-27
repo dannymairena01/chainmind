@@ -25,10 +25,10 @@ const CreateAgentSchema = z.object({
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
-function handleZodError(err: z.ZodError<any>, res: Response): void {
+function handleZodError(err: any, res: Response): void {
     res.status(400).json({
         error: "Validation failed",
-        errors: err.errors.map((e: z.ZodIssue) => ({ field: e.path.join("."), message: e.message })),
+        errors: err.errors ? err.errors.map((e: any) => ({ field: e.path.join("."), message: e.message })) : [],
     });
 }
 
