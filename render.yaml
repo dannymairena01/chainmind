@@ -3,6 +3,7 @@ services:
     name: chainmind-agent
     env: node
     region: oregon # Or whatever region you prefer
+    plan: free
     buildCommand: pnpm install --frozen-lockfile && pnpm --filter @chainmind/agent build && cd apps/agent && npx prisma generate
     startCommand: pnpm --filter @chainmind/agent start
     envVars:
