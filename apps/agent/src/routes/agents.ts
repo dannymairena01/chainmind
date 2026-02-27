@@ -19,18 +19,16 @@ const rpcProvider = new ethers.JsonRpcProvider(
 
 const CreateAgentSchema = z.object({
     name: z.string().min(1, "Name is required").max(100, "Name must be 100 chars or less").trim(),
-    taskType: z.enum(["SWAP", "MONITOR", "ALERT"], {
-        errorMap: () => ({ message: "taskType must be one of: SWAP, MONITOR, ALERT" }),
-    }),
+    taskType: z.enum(["SWAP", "MONITOR", "ALERT"]).describe("taskType must be one of: SWAP, MONITOR, ALERT"),
     description: z.string().max(500).optional(),
 });
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
-function handleZodError(err: ZodError, res: Response): void {
+function handleZodError(err: z.ZodError, res: Response): void {
     res.status(400).json({
         error: "Validation failed",
-        errors: err.errors.map((e) => ({ field: e.path.join("."), message: e.message })),
+        errors: err.errors.map((e: z.ZodIssue) => ({ field: e.path.join("."), message: e.message })),
     });
 }
 
